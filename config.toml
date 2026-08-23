@@ -1,0 +1,45 @@
+# Local resource policy for Milestone 1 / Stage A.
+# GPU remains disabled. There are no temperature measurements.
+
+default_mode = "balanced"
+gpu = false
+
+# Reserved, documented defaults for future bounded-search milestones. Milestone
+# 1 does not consume them and does not pretend to read macOS temperatures.
+[bounded_search_defaults]
+max_cpu_threads = 4
+gpu_enabled = false
+gpu_duty_cycle = 0.30
+batch_size = 100000
+sleep_between_batches_ms = 100
+thermal_soft_limit_c = 80
+thermal_hard_limit_c = 88
+checkpoint_interval_seconds = 60
+
+[modes.eco]
+workers = 1
+duty_cycle = 0.20
+max_candidates_per_second = 5
+description = "Low duty cycle. Stage A still runs sequentially."
+
+[modes.balanced]
+workers = 1
+duty_cycle = 1.0
+max_candidates_per_second = 0
+description = "Default. Stage A is tiny and sequential; no extra concurrency."
+
+[modes.max]
+workers = 1
+duty_cycle = 1.0
+max_candidates_per_second = 0
+description = "Still sequential for Stage A. Pause/resume/checkpointing and GPU are future bounded-search features, not used here."
+
+[history]
+batch_size = 40
+provider = "blockchain.info-multiaddr"
+base_url = "https://blockchain.info"
+timeout_seconds = 20
+
+[storage]
+state_dir = "state"
+database_name = "research.sqlite"

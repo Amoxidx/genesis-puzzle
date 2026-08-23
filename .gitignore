@@ -1,0 +1,15 @@
+.venv/
+venv/
+state/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+*.sqlite
+*.sqlite-journal
+.DS_Store

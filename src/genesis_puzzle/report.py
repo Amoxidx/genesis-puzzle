@@ -1,14 +1,70 @@
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
 from genesis_puzzle.model import GenesisFacts, KnownTarget
+from genesis_puzzle.witness import WITNESS_TEMPLATES
+
+TEMPLATE_COUNT = len(WITNESS_TEMPLATES)
+STAGE_C_SEPARATORS = (
+    ("empty string", '""'),
+    ("colon", '":"'),
+    ("pipe", '"|"'),
+    ("hyphen", '"-"'),
+    ("underscore", '"_"'),
+    ("ASCII space", '" "'),
+    ("ASCII newline", r'"\n"'),
+)
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+
+
+def _as_int(mapping: Optional[Mapping[str, Any]], key: str, default: int = 0) -> int:
+    if mapping is None:
+        return default
+    value = mapping.get(key)
+    if value is None:
+        return default
+    return int(value)
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, str):
+        return value not in ("", "0")
+    return bool(value)
+
+
+def _stage_rows(derivations: Sequence[Mapping[str, Any]], stage: str) -> list[Mapping[str, Any]]:
+    return [item for item in derivations if str(item.get("stage") or "") == stage]
+
+
+def _run_lines(title: str, run: Optional[Mapping[str, Any]], missing: str) -> str:
+    if run is None:
+        return missing
+    return (
+        f"{title}\n"
+        f"- status: {run.get('status')}\n"
+        f"- mode: {run.get('mode')}\n"
+        f"- elapsed_seconds: {run.get('elapsed_seconds')}\n"
+        f"- rate_per_second: {run.get('rate_per_second')}\n"
+        f"- checkpoint: {run.get('notes')}"
+    )
+
+
+def _unique_fingerprints(rows: Sequence[Mapping[str, Any]]) -> set[str]:
+    fingerprints = set()
+    for item in rows:
+        if not _truthy(item.get("valid")):
+            continue
+        fingerprint = item.get("fingerprint")
+        if fingerprint:
+            fingerprints.add(str(fingerprint))
+    return fingerprints
 
 
 def render_report(
@@ -19,14 +75,57 @@ def render_report(
     derivations: Sequence[Mapping[str, Any]],
     comparisons: Sequence[Mapping[str, Any]],
     checked_history: Sequence[Mapping[str, Any]],
+    witness_candidates: Sequence[Mapping[str, Any]] = (),
+    stage_a_run: Optional[Mapping[str, Any]] = None,
+    stage_b_run: Optional[Mapping[str, Any]] = None,
 ) -> str:
-    duplicate_count = 0
-    if latest_run is not None:
-        duplicate_count = int(latest_run.get("duplicate_count") or 0)
-    invalid = counts.get("invalid", 0)
-    unique_keys = counts.get("unique_keys", 0)
-    deriv_n = counts.get("derivations", 0)
-    match_n = counts.get("target_matches", 0)
+    if (
+        stage_a_run is None
+        and latest_run is not None
+        and str(latest_run.get("stage") or "") == "A"
+    ):
+        stage_a_run = latest_run
+    if (
+        stage_b_run is None
+        and latest_run is not None
+        and str(latest_run.get("stage") or "") == "B"
+    ):
+        stage_b_run = latest_run
+
+    stage_a_rows = _stage_rows(derivations, "A")
+    stage_b_rows = _stage_rows(derivations, "B")
+    stage_a_invalid = sum(1 for item in stage_a_rows if not _truthy(item.get("valid")))
+    stage_b_invalid = sum(1 for item in stage_b_rows if not _truthy(item.get("valid")))
+    stage_a_unique = len(_unique_fingerprints(stage_a_rows))
+    if stage_a_run is not None and stage_a_unique == 0:
+        stage_a_unique = _as_int(stage_a_run, "unique_valid_keys")
+
+    unique_keys = int(counts.get("unique_keys", 0))
+    address_match_n = int(counts.get("target_matches", 0))
+    witness_match_n = int(counts.get("witness_matches", 0))
+    if witness_candidates:
+        witness_match_n = sum(1 for item in witness_candidates if _truthy(item.get("matched")))
+    tested_witness = len(witness_candidates)
+    if tested_witness == 0:
+        tested_witness = int(counts.get("witness_candidates", 0))
+
+    if stage_b_run is not None:
+        cumulative_unique = _as_int(stage_b_run, "unique_valid_keys", unique_keys)
+        cumulative_duplicates = _as_int(stage_b_run, "duplicate_count")
+        if _as_int(stage_b_run, "tested_candidate_count") and tested_witness == 0:
+            tested_witness = _as_int(stage_b_run, "tested_candidate_count")
+    elif stage_a_run is not None:
+        cumulative_unique = _as_int(
+            stage_a_run, "unique_valid_keys", unique_keys or stage_a_unique
+        )
+        cumulative_duplicates = _as_int(stage_a_run, "duplicate_count")
+    else:
+        cumulative_unique = unique_keys
+        cumulative_duplicates = _as_int(latest_run, "duplicate_count")
+
+    stage_a_only_scripts = stage_a_unique * TEMPLATE_COUNT
+    combined_scripts = cumulative_unique * TEMPLATE_COUNT
+
     history_checked = len(checked_history)
     chain_state = "not checked"
     if history_checked:
@@ -59,46 +158,202 @@ def render_report(
             f"`{target.address}` (`{target.script_type}`) in tx `{target.txid}` "
             f"block {target.block_height}. {target.notes}"
         )
+    target_address = targets[0].address if targets else "n/a"
+    target_program = (
+        targets[0].witness_program_hex
+        if targets
+        else "4dae67a9872f1402109f9670276afc2c0758f895aafddcd089795771b7964833"
+    )
+    target_status = targets[0].status if targets else "suspected_not_proven"
 
     derivation_lines = []
     eliminated = []
     remaining = []
     for item in derivations:
-        mark = "valid" if item["valid"] else "eliminated"
+        mark = "valid" if _truthy(item.get("valid")) else "eliminated"
         derivation_lines.append(
             f"- `{item['derivation_id']}` [{mark}] {item['recipe']} "
             f"(source `{item['source']}`, transform `{item['transformation']}`, "
             f"confidence {item['confidence']})"
         )
-        if item["valid"]:
-            remaining.append(item["derivation_id"])
+        if _truthy(item.get("valid")):
+            remaining.append(str(item["derivation_id"]))
         else:
             eliminated.append(
-                f"- `{item['derivation_id']}`: {item['eliminated_reason'] or 'invalid scalar'}"
+                f"- `{item['derivation_id']}`: {item.get('eliminated_reason') or 'invalid scalar'}"
             )
 
-    comparison_note = (
+    template_counts: Counter[str] = Counter()
+    for item in witness_candidates:
+        name = str(item.get("template_id") or item.get("template_name") or "")
+        if name:
+            template_counts[name] += 1
+    template_lines = []
+    for template in WITNESS_TEMPLATES:
+        kind = (
+            "compressed; modern canonical / descriptor-compatible"
+            if template.pubkey_mode == "compressed"
+            else (
+                "uncompressed; lower-priority historical/manual possibility, "
+                "not standard descriptor-compatible"
+            )
+        )
+        template_lines.append(
+            f"- priority {template.priority}: `{template.name}` ({kind}); "
+            f"tested {template_counts.get(template.name, 0)}"
+        )
+
+    address_comparison_note = (
         "No Stage A P2PKH/P2WPKH address equals the suspected P2WSH output. "
         "That is expected: a standard-key address cannot match a P2WSH output "
         "without knowing or hypothesizing the witness script."
     )
-    if match_n:
-        comparison_note = (
-            f"{match_n} comparable address match(es) were recorded. "
+    if address_match_n:
+        address_comparison_note = (
+            f"{address_match_n} comparable address match(es) were recorded. "
             "Review before any further claim."
         )
 
-    run_block = "No Stage A run stored yet."
-    if latest_run is not None:
-        run_block = (
-            f"- status: {latest_run.get('status')}\n"
-            f"- mode: {latest_run.get('mode')}\n"
-            f"- elapsed_seconds: {latest_run.get('elapsed_seconds')}\n"
-            f"- rate_per_second: {latest_run.get('rate_per_second')}\n"
-            f"- checkpoint: {latest_run.get('notes')}\n"
+    if stage_b_run is None:
+        stage_b_result = (
+            "No Stage B run is stored in this database yet. Stage B is an implemented "
+            "offline deterministic stage; it requires a completed Stage A run and is "
+            "not out of scope."
+        )
+        subset_note = (
+            f"Once Stage B is executed, the {stage_a_only_scripts} Stage-A-only "
+            f"script-template subset is {stage_a_unique} unique Stage A keys "
+            f"times {TEMPLATE_COUNT} templates. That subset is contained in the "
+            f"combined A+B set; it is not an extra count."
+        )
+        witness_verdict = (
+            "Stage B P2WSH template comparison has not been stored yet. "
+            f"The announcement target remains `{target_status}`."
+        )
+    else:
+        subset_note = (
+            f"The {stage_a_only_scripts} Stage-A-only script-template subset is "
+            f"{stage_a_unique} unique Stage A keys times {TEMPLATE_COUNT} templates. "
+            f"The full combined A+B set is {combined_scripts} scripts "
+            f"({cumulative_unique} cumulative unique keys times {TEMPLATE_COUNT} "
+            "templates). The Stage-A-only subset is contained in the combined set; "
+            "it is not an extra 132 on top of 630. "
+            f"The executed Stage B run tested {tested_witness} witness candidates."
+        )
+        if witness_match_n:
+            witness_verdict = (
+                f"{witness_match_n} direct P2WSH target-script match(es) were stored. "
+                "Review before any further claim. This report does not treat a "
+                "template match as a solved puzzle by itself."
+            )
+        else:
+            witness_verdict = (
+                "Zero stored witness candidates equal the suspected 32-byte witness "
+                "program or its native P2WSH address. That does not disprove the "
+                f"puzzle. The announcement target remains `{target_status}`."
+            )
+        stage_b_n = len(stage_b_rows) or _as_int(stage_b_run, "derivation_count")
+        stage_b_result = (
+            f"- Stage B derivations: {stage_b_n}\n"
+            f"- Stage B invalid derivations: "
+            f"{stage_b_invalid or _as_int(stage_b_run, 'invalid_count')}\n"
+            f"- cumulative unique valid keys after A+B: {cumulative_unique}\n"
+            f"- cumulative duplicate provenance paths after A+B: {cumulative_duplicates}\n"
+            f"- tested witness candidates: {tested_witness}\n"
+            f"- P2WSH direct target matches: {witness_match_n}"
         )
 
-    return f"""# Genesis Puzzle — Stage A report
+    stage_a_duplicates = _as_int(stage_a_run, "duplicate_count")
+    stage_a_n = len(stage_a_rows) or _as_int(stage_a_run, "derivation_count")
+    stage_a_result = (
+        f"- Stage A derivations: {stage_a_n}\n"
+        f"- Stage A invalid derivations: "
+        f"{stage_a_invalid or _as_int(stage_a_run, 'invalid_count')}\n"
+        f"- Stage A unique valid keys: {stage_a_unique}\n"
+        f"- Stage A duplicate provenance paths: {stage_a_duplicates}\n"
+        f"- cumulative unique valid keys after Stage A: {stage_a_unique}\n"
+        f"- cumulative duplicate provenance paths after Stage A: {stage_a_duplicates}\n"
+        "- addresses by type:\n"
+        f"  - uncompressed P2PKH: {counts.get('p2pkh_uncompressed', 0)}\n"
+        f"  - compressed P2PKH: {counts.get('p2pkh_compressed', 0)}\n"
+        f"  - compressed P2WPKH: {counts.get('p2wpkh', 0)}\n"
+        f"- known-target address matches: {address_match_n}\n"
+        f"- chain-history state: {chain_state}"
+    )
+
+    remaining_n = len(remaining)
+    if remaining_n == 0:
+        remaining_text = "No stored valid derivation remains."
+    elif stage_b_run is not None and witness_match_n == 0:
+        remaining_text = (
+            f"{remaining_n} stored valid derivation ids remain open as public-key "
+            "hypotheses, not as matches. They are listed once under Derivations. "
+            "Stage A P2PKH/P2WPKH addresses still do not test the P2WSH program. "
+            "The six generic single-key P2WSH templates did not match the target. "
+            "Other scripts, combinations, and encodings remain untested."
+        )
+    elif stage_b_run is not None:
+        remaining_text = (
+            f"{remaining_n} stored valid derivation ids are listed once under "
+            "Derivations. Review the stored P2WSH match(es) before any claim. "
+            "This is not by itself a solved puzzle."
+        )
+    else:
+        remaining_text = (
+            f"{remaining_n} stored valid derivation ids remain open as public-key "
+            "hypotheses, not as matches. They are listed once under Derivations. "
+            "They produced standard P2PKH/P2WPKH addresses which do not, by "
+            "themselves, test a P2WSH output."
+        )
+
+    separator_lines = [
+        f"{index}. {name} `{token}`"
+        for index, (name, token) in enumerate(STAGE_C_SEPARATORS, start=1)
+    ]
+    if stage_b_run is not None:
+        audit_line = (
+            f"All {tested_witness} public candidate scripts, programs, addresses, and "
+            "provenance for the executed Stage B run are stored in SQLite. Scalar "
+            "material is not stored. This Markdown report does not dump those rows."
+        )
+    else:
+        audit_line = (
+            "When Stage B is executed, all public candidate scripts, programs, "
+            "addresses, and provenance are stored in SQLite. Scalar material is not "
+            "stored. This Markdown report does not dump those rows."
+        )
+
+    if stage_b_run is None:
+        remaining_followup = (
+            "A miss of Stage A P2PKH/P2WPKH addresses is not a proof that no puzzle "
+            "exists. The immediate next stored experiment is Stage B, not Stage C."
+        )
+        next_experiment = """## Next highest-value Stage B experiment (not executed)
+
+Stage B is implemented, offline, and requires a completed Stage A result in
+the same database. Run `run --stage B`. Do not execute Stage C until that
+Stage B run is stored."""
+    else:
+        remaining_followup = (
+            "A miss of these six templates is not a proof that no puzzle exists. "
+            "Remaining open work is other scripts, other encodings, and the bounded "
+            "Stage C experiment below."
+        )
+        next_experiment = f"""## Next highest-value Stage C experiment (not executed)
+
+Hypothesis, not a claim: after the executed Stage A+B set, the single
+highest-value next experiment is a *bounded pairwise combination* of the
+actual nonce and timestamp ASCII decimal values (`2083236893` and
+`1231006505`) in both orders (`nonce || separator || timestamp` and
+`timestamp || separator || nonce`) with exactly these seven separators:
+
+{chr(10).join(separator_lines)}
+
+SHA256 each of those 14 public strings, then apply the same six P2WSH
+templates. Do not execute Stage C here. Do not add broader combinations,
+extra fields, dates, neighborhoods, or brute force."""
+
+    return f"""# Genesis Puzzle — Stage A+B report
 
 Generated {_utc_now()} from stored facts and SQLite results. Private candidate
 scalars are redacted and are not stored.
@@ -116,12 +371,13 @@ block `963629`, publication time `2026-08-22 19:45 UTC`.
 
 Satoshi's Genesis block is a public, narrowly scoped artifact. This researcher
 asks whether any *canonical public field of that block*, taken as a secp256k1
-scalar or as SHA256 of that field, produces a standard Bitcoin address that
-can be compared against a later suspected puzzle output.
+scalar or as SHA256 of that field, produces a standard Bitcoin address or a
+generic single-key P2WSH program that can be compared against a later suspected
+puzzle output.
 
-This is not a general private-key cracking framework. Stage B, brute force,
-PBKDF2/BIP39, Metal, transaction creation, wallet import, spending, and
-broadcasting are out of scope.
+This is not a general private-key cracking framework. Deterministic Stages A
+and B are implemented. Stage C, brute force, PBKDF2/BIP39, Metal, transaction
+creation, wallet import, spending, and broadcasting are out of scope.
 
 ## Known public facts
 
@@ -157,14 +413,14 @@ proofs that must hold after parse:
 3. The one-transaction Merkle root equals the header Merkle root.
 4. Headline and uncompressed pubkey match the canonical document.
 
-`init` re-runs these proofs before any Stage A derivation.
+`init` re-runs these proofs before any Stage A or Stage B derivation.
 
 ## Hypotheses tested in Stage A
 
 Stage A only uses canonical public values and two justified 32-byte hash
 orders (wire/internal and display). It does not expand into case folding,
 separators, dates, newlines, permutations, neighborhoods, repeated hashes, or
-combinations (that is Stage B representation-matrix work).
+combinations.
 
 What was tested, and why:
 
@@ -183,22 +439,18 @@ fingerprints, public keys, and addresses only.
 
 ## Stage A results
 
-{run_block}
+{_run_lines("Stage A run:", stage_a_run, "No Stage A run stored yet.")}
 
-- total derivations: {deriv_n}
-- invalid derivations: {invalid}
-- unique valid keys: {unique_keys}
-- duplicates (extra provenance paths onto an already-seen scalar): {duplicate_count}
-- addresses by type:
-  - uncompressed P2PKH: {counts.get("p2pkh_uncompressed", 0)}
-  - compressed P2PKH: {counts.get("p2pkh_compressed", 0)}
-  - compressed P2WPKH: {counts.get("p2wpkh", 0)}
-- known-target matches: {match_n}
-- chain-history state: {chain_state}
+{stage_a_result}
 
-{comparison_note}
+{address_comparison_note}
 
 ### Address history
+
+Stage A derived 66 standard addresses (22 unique keys times three types).
+History below is that Stage A address snapshot. Direct P2WSH comparison in
+Stage B uses `SHA256(witnessScript)` against the 32-byte witness program and
+does not need a blockchain-history lookup.
 
 - never seen: {history_status_counts["never_seen"]}
 - seen but empty: {history_status_counts["seen_but_empty"]}
@@ -219,6 +471,46 @@ Addresses with blockchain history:
   sweep activity. The suspected puzzle output remains the separate P2WSH
   program recorded above.
 
+## Hypotheses tested in Stage B
+
+The suspected target is P2WSH (`{target_address}`). HASH160(pubkey) is the
+wrong program length and the wrong script template compared with
+`SHA256(witnessScript)`. Stage B therefore does two bounded things:
+
+1. A representation matrix of canonical encodings of primitives physically
+   present in the Genesis block (ASCII decimal with newline, hex case and `0x`
+   prefixes, fixed-width and distinct minimal endian forms, justified hash
+   byte orders, raw header/tx/script/key/block bytes) plus a few exact
+   lower-priority semantic UTF-8 strings. Each recipe is SHA256 of a canonical
+   encoding, or a direct big-endian integer of a canonical fixed 4-byte or
+   8-byte endian byte sequence. No pairwise combinations, dates, typos,
+   neighborhoods, PBKDF2/BIP39, or brute force.
+2. Six generic single-key witness-script templates, in this global priority,
+   compared by exact `SHA256(witnessScript)` and native mainnet P2WSH address
+   against witness program `{target_program}`:
+
+    <compressed pubkey> OP_CHECKSIG
+
+Compressed templates are the modern canonical, descriptor-compatible forms.
+Uncompressed P2WSH pubkeys were tested only as lower-priority
+historical/manual possibilities and are not standard descriptor-compatible.
+
+## Stage B results
+
+{_run_lines("Stage B run:", stage_b_run, "No Stage B run stored yet.")}
+
+{stage_b_result}
+
+Witness templates in actual priority:
+
+{chr(10).join(template_lines)}
+
+{subset_note}
+
+{witness_verdict}
+
+{audit_line}
+
 ### Derivations
 
 {chr(10).join(derivation_lines) if derivation_lines else "- none stored yet"}
@@ -229,45 +521,22 @@ Addresses with blockchain history:
 
 ### Remaining hypotheses
 
-Stage A public-key hypotheses remain open unless their public address history
-or the suspected target script provides evidence. Remaining valid derivation
-ids: {", ".join(f"`{item}`" for item in remaining) or "none"}.
+{remaining_text}
 
-They are not claims of a match. They are simply scalars that produced standard
-P2PKH/P2WPKH addresses which do not, by themselves, test a P2WSH output.
+{remaining_followup}
 
-## P2WSH gap
-
-The suspected target is P2WSH (`{targets[0].address if targets else "n/a"}`).
-Standard P2PKH and P2WPKH derivations from Stage A public keys cannot directly
-test its unknown witness script. A HASH160(pubkey) is the wrong program length
-and the wrong script template compared with SHA256(witnessScript).
-
-## Next highest-value Stage B experiment (not executed)
-
-Hypothesis, not a claim: before expanding a full representation matrix, test a
-narrowly bounded set of *canonical single-key witness-script templates* built
-from the Stage A compressed public keys, especially:
-
-    <compressed pubkey> OP_CHECKSIG
-
-That preserves the Genesis P2PK motif (a single key immediately followed by
-CHECKSIG) inside a P2WSH program. Compare `SHA256(witnessScript)` against the
-suspected 32-byte witness program
-`4dae67a9872f1402109f9670276afc2c0758f895aafddcd089795771b7964833`.
-
-Do not execute that experiment in Milestone 1. Do not brute-force, do not
-search neighborhoods, and do not treat a template miss as proof that no
-puzzle exists.
+{next_experiment}
 
 ## Resource and safety notes
 
-- Balanced mode is the default. Stage A is sequential.
+- Balanced mode is the default. Stage A and Stage B are sequential.
 - Pause/resume/checkpointing are future bounded-search features and are not
   needed here (`checkpoint-not-needed`).
 - GPU is disabled. No temperature is measured.
-- Offline is the default. Remote history checks are explicit, batched, and
-  send derived public addresses only.
+- Offline is the default. Stage B never queries chain history. Remote history
+  checks are explicit, batched, and send derived public addresses only.
+- Do not paste candidate scalars into a wallet. This tool will not import
+  keys, build transactions, or broadcast.
 
 ## Public verification sources
 

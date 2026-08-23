@@ -7,9 +7,14 @@ from pathlib import Path
 from typing import List, Optional, Sequence, TextIO
 
 from genesis_puzzle.benchmark import run_benchmark
-from genesis_puzzle.candidates import preview_lines, stage_a_recipes
+from genesis_puzzle.candidates import preview_for_stage, recipes_for_stage
 from genesis_puzzle.config import AppConfig, load_config
-from genesis_puzzle.engine import run_stage_a
+from genesis_puzzle.engine import (
+    StageBPrerequisiteError,
+    TargetConsistencyError,
+    run_stage_a,
+    run_stage_b,
+)
 from genesis_puzzle.history import BlockchainInfoMultiaddrProvider, HistoryResult, chunked
 from genesis_puzzle.model import load_genesis_facts, load_known_targets
 from genesis_puzzle.parser import parse_and_verify
@@ -25,13 +30,16 @@ from genesis_puzzle.storage import (
     connect,
     history_rows,
     latest_run,
+    latest_run_for_stage,
     list_addresses,
+    list_witness_candidates,
     transaction,
     update_history,
 )
 from genesis_puzzle.storage import (
     counts as store_counts,
 )
+from genesis_puzzle.witness import WITNESS_TEMPLATES
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -39,8 +47,9 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="genesis-puzzle",
         description=(
             "Local auditable Bitcoin Genesis Puzzle researcher. "
-            "Milestone 1 implements Stage A only. Pause/resume/checkpointing are "
-            "future bounded-search features and are not used here."
+            "Implements Stage A and Stage B deterministic stages. "
+            "Pause/resume/checkpointing are future bounded-search features and "
+            "are not used here."
         ),
     )
     parser.add_argument("--root", default=None, help="Project root (data/, config.toml)")
@@ -53,12 +62,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
     cand = sub.add_parser(
         "candidates",
-        help="Preview ordered Stage A recipes without deriving a private scalar",
+        help="Preview ordered Stage A or Stage B recipes without deriving a private scalar",
     )
-    cand.add_argument("--stage", required=True, choices=["A"])
+    cand.add_argument("--stage", required=True, choices=["A", "B"])
 
-    run = sub.add_parser("run", help="Derive Stage A keys and store public results")
-    run.add_argument("--stage", required=True, choices=["A"])
+    run = sub.add_parser(
+        "run",
+        help="Derive Stage A or Stage B keys and store public results",
+    )
+    run.add_argument("--stage", required=True, choices=["A", "B"])
     run.add_argument("--mode", choices=["eco", "balanced", "max"], default=None)
 
     sub.add_parser(
@@ -67,7 +79,10 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser(
         "status",
-        help="Latest run status/count/rate/mode/elapsed; checkpoint is not needed for Stage A",
+        help=(
+            "Latest run status/count/rate/mode/elapsed; checkpoint is not needed "
+            "for Stage A+B deterministic stages"
+        ),
     )
     sub.add_parser("report", help="Regenerate research/report.md from stored facts/results")
 
@@ -109,6 +124,8 @@ def _write_current_report(store: Store, root: Path, report_path: Path) -> None:
     c = store_counts(conn)
     run = latest_run(conn)
     run_map = dict(run) if run is not None else None
+    stage_a = latest_run_for_stage(conn, "A")
+    stage_b = latest_run_for_stage(conn, "B")
     derivations = [
         dict(row)
         for row in conn.execute("SELECT * FROM derivations ORDER BY derivation_id").fetchall()
@@ -117,6 +134,7 @@ def _write_current_report(store: Store, root: Path, report_path: Path) -> None:
         dict(row) for row in conn.execute("SELECT * FROM target_comparisons").fetchall()
     ]
     checked_history = [dict(row) for row in history_rows(conn)]
+    witness_rows = [dict(row) for row in list_witness_candidates(conn)]
     content = render_report(
         facts,
         targets,
@@ -125,6 +143,9 @@ def _write_current_report(store: Store, root: Path, report_path: Path) -> None:
         derivations,
         comparisons,
         checked_history,
+        witness_rows,
+        stage_a_run=dict(stage_a) if stage_a is not None else None,
+        stage_b_run=dict(stage_b) if stage_b is not None else None,
     )
     write_report(report_path, content)
 
@@ -136,7 +157,10 @@ def cmd_init(args: argparse.Namespace, out: TextIO) -> int:
     store = _open_store(db_path)
     _write_current_report(store, root, report_path)
     out.write(f"init ok  db={db_path}  proofs=verified  header_bytes={len(block.header.raw)}\n")
-    out.write("checkpointing is a future bounded-search feature; Stage A does not need it\n")
+    out.write(
+        "checkpointing is a future bounded-search feature; Stage A+B deterministic "
+        "stages do not need it\n"
+    )
     return 0
 
 
@@ -144,10 +168,18 @@ def cmd_candidates(args: argparse.Namespace, out: TextIO) -> int:
     root, _config, _state_dir, _db_path, _report_path = _load_app(args)
     facts = load_genesis_facts(root)
     block = parse_and_verify(facts)
-    recipes = stage_a_recipes(block)
-    out.write(f"stage A recipes: {len(recipes)} (preview only, scalars not derived)\n")
-    for line in preview_lines(recipes):
+    recipes = recipes_for_stage(block, args.stage)
+    out.write(f"stage {args.stage} recipes: {len(recipes)} (preview only, scalars not derived)\n")
+    for line in preview_for_stage(block, args.stage):
         out.write(line + "\n")
+    if args.stage == "B":
+        out.write("witness templates (global priority order, up to six scripts per unique key):\n")
+        for template in WITNESS_TEMPLATES:
+            out.write(f"    {template.priority}. {template.name}\n")
+        out.write(
+            "Each unique valid key is tested against these six generic single-key "
+            "witness scripts. Preview does not derive a scalar or public key.\n"
+        )
     return 0
 
 
@@ -158,13 +190,22 @@ def cmd_run(args: argparse.Namespace, out: TextIO) -> int:
     targets = load_known_targets(root)
     mode = config.mode(args.mode)
     store = _open_store(db_path)
-    summary = run_stage_a(store, block, targets, mode, out=out)
+    try:
+        if args.stage == "A":
+            summary = run_stage_a(store, block, targets, mode, out=out)
+            extra = f"addresses={summary['addresses']}"
+        else:
+            summary = run_stage_b(store, block, targets, mode, out=out)
+            extra = f"witness_candidates={summary['witness_candidates']}"
+    except (StageBPrerequisiteError, TargetConsistencyError) as exc:
+        out.write(f"error: {exc}\n")
+        return 1
     _write_current_report(store, root, report_path)
     out.write(
         "run complete  "
         f"derivations={summary['derivations']}  invalid={summary['invalid']}  "
         f"unique_keys={summary['unique_valid_keys']}  duplicates={summary['duplicates']}  "
-        f"addresses={summary['addresses']}  elapsed_s={summary['elapsed_seconds']:.4f}  "
+        f"{extra}  elapsed_s={summary['elapsed_seconds']:.4f}  "
         f"checkpoint=not-needed  report={report_path}\n"
     )
     return 0
@@ -188,7 +229,9 @@ def cmd_status(args: argparse.Namespace, out: TextIO) -> int:
     run = latest_run(store.conn)
     if run is None:
         out.write("status: no runs stored\n")
-        out.write("checkpoint: not needed (Stage A is tiny and sequential)\n")
+        out.write(
+            "checkpoint: not needed (Stage A+B deterministic stages are tiny and sequential)\n"
+        )
         return 0
     out.write(
         f"status={run['status']}  stage={run['stage']}  mode={run['mode']}  "

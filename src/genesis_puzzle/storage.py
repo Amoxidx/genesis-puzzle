@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS runs (
     unique_valid_keys INTEGER,
     duplicate_count INTEGER,
     address_count INTEGER,
+    tested_candidate_count INTEGER,
     elapsed_seconds REAL,
     rate_per_second REAL,
     notes TEXT NOT NULL DEFAULT 'checkpoint-not-needed'
@@ -86,6 +87,24 @@ CREATE TABLE IF NOT EXISTS target_comparisons (
     note TEXT NOT NULL,
     UNIQUE(address, target_id)
 );
+
+CREATE TABLE IF NOT EXISTS witness_candidates (
+    id INTEGER PRIMARY KEY,
+    fingerprint TEXT NOT NULL REFERENCES keys(fingerprint),
+    target_id TEXT NOT NULL,
+    template_id TEXT NOT NULL,
+    template_name TEXT NOT NULL,
+    priority INTEGER NOT NULL,
+    pubkey_mode TEXT NOT NULL,
+    pubkey_hex TEXT NOT NULL,
+    witness_script_hex TEXT NOT NULL,
+    witness_program_hex TEXT NOT NULL,
+    address TEXT NOT NULL,
+    derivation_ids TEXT NOT NULL,
+    matched INTEGER NOT NULL,
+    run_id INTEGER NOT NULL REFERENCES runs(id),
+    UNIQUE(fingerprint, target_id, template_id)
+);
 """
 
 
@@ -123,6 +142,11 @@ def connect(path: Path) -> Store:
     for column, statement in history_migrations.items():
         if column not in existing_history_columns:
             conn.execute(statement)
+    existing_run_columns = {
+        str(row[1]) for row in conn.execute("PRAGMA table_info(runs)").fetchall()
+    }
+    if "tested_candidate_count" not in existing_run_columns:
+        conn.execute("ALTER TABLE runs ADD COLUMN tested_candidate_count INTEGER")
     conn.commit()
     restrict_owner_only(path)
     return Store(path=path, conn=conn)
@@ -169,6 +193,7 @@ def finish_run(
     duplicate_count: int,
     address_count: int,
     elapsed_seconds: float,
+    tested_candidate_count: int = 0,
 ) -> None:
     rate = derivation_count / elapsed_seconds if elapsed_seconds > 0 else 0.0
     conn.execute(
@@ -176,7 +201,7 @@ def finish_run(
         UPDATE runs
         SET finished_at = ?, status = ?, derivation_count = ?, invalid_count = ?,
             unique_valid_keys = ?, duplicate_count = ?, address_count = ?,
-            elapsed_seconds = ?, rate_per_second = ?,
+            tested_candidate_count = ?, elapsed_seconds = ?, rate_per_second = ?,
             notes = 'checkpoint-not-needed'
         WHERE id = ?
         """,
@@ -188,6 +213,7 @@ def finish_run(
             unique_valid_keys,
             duplicate_count,
             address_count,
+            tested_candidate_count,
             elapsed_seconds,
             rate,
             run_id,
@@ -319,8 +345,99 @@ def upsert_comparison(
     )
 
 
+def upsert_witness_candidate(
+    conn: sqlite3.Connection,
+    *,
+    fingerprint: str,
+    target_id: str,
+    template_id: str,
+    template_name: str,
+    priority: int,
+    pubkey_mode: str,
+    pubkey_hex: str,
+    witness_script_hex: str,
+    witness_program_hex: str,
+    address: str,
+    derivation_ids: str,
+    matched: bool,
+    run_id: int,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO witness_candidates (
+            fingerprint, target_id, template_id, template_name, priority,
+            pubkey_mode, pubkey_hex, witness_script_hex, witness_program_hex,
+            address, derivation_ids, matched, run_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(fingerprint, target_id, template_id) DO UPDATE SET
+            template_name = excluded.template_name,
+            priority = excluded.priority,
+            pubkey_mode = excluded.pubkey_mode,
+            pubkey_hex = excluded.pubkey_hex,
+            witness_script_hex = excluded.witness_script_hex,
+            witness_program_hex = excluded.witness_program_hex,
+            address = excluded.address,
+            derivation_ids = excluded.derivation_ids,
+            matched = excluded.matched,
+            run_id = excluded.run_id
+        """,
+        (
+            fingerprint,
+            target_id,
+            template_id,
+            template_name,
+            priority,
+            pubkey_mode,
+            pubkey_hex,
+            witness_script_hex,
+            witness_program_hex,
+            address,
+            derivation_ids,
+            int(matched),
+            run_id,
+        ),
+    )
+
+
+def list_witness_candidates(conn: sqlite3.Connection) -> List[sqlite3.Row]:
+    return fetchall(conn, "SELECT * FROM witness_candidates ORDER BY id")
+
+
+def witness_candidate_count(conn: sqlite3.Connection) -> int:
+    return int(conn.execute("SELECT COUNT(*) FROM witness_candidates").fetchone()[0])
+
+
+def witness_match_count(conn: sqlite3.Connection) -> int:
+    return int(
+        conn.execute("SELECT COUNT(*) FROM witness_candidates WHERE matched = 1").fetchone()[0]
+    )
+
+
+def replace_witness_candidates(
+    conn: sqlite3.Connection,
+    target_ids: Sequence[str],
+    rows: Sequence[Dict[str, Any]],
+) -> None:
+    """Delete current-target rows then upsert replacements. Call inside a transaction."""
+    if target_ids:
+        placeholders = ",".join("?" for _ in target_ids)
+        conn.execute(
+            f"DELETE FROM witness_candidates WHERE target_id IN ({placeholders})",
+            tuple(target_ids),
+        )
+    for row in rows:
+        upsert_witness_candidate(conn, **row)
+
+
 def latest_run(conn: sqlite3.Connection) -> Optional[sqlite3.Row]:
     return conn.execute("SELECT * FROM runs ORDER BY id DESC LIMIT 1").fetchone()
+
+
+def latest_run_for_stage(conn: sqlite3.Connection, stage: str) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM runs WHERE stage = ? ORDER BY id DESC LIMIT 1",
+        (stage,),
+    ).fetchone()
 
 
 def fetchall(conn: sqlite3.Connection, sql: str, params: Sequence[Any] = ()) -> List[sqlite3.Row]:
@@ -365,12 +482,22 @@ def counts(conn: sqlite3.Connection) -> Dict[str, int]:
         "history_seen": int(seen),
         "history_funded": int(funded),
         "history_spent": int(spent),
+        "witness_candidates": witness_candidate_count(conn),
+        "witness_matches": witness_match_count(conn),
     }
 
 
 def dump_text(conn: sqlite3.Connection) -> str:
     chunks = []
-    for table in ("runs", "keys", "derivations", "addresses", "history", "target_comparisons"):
+    for table in (
+        "runs",
+        "keys",
+        "derivations",
+        "addresses",
+        "history",
+        "target_comparisons",
+        "witness_candidates",
+    ):
         rows = conn.execute(f"SELECT * FROM {table}").fetchall()
         chunks.append(f"[{table}]")
         for row in rows:

@@ -1,6 +1,6 @@
-# Genesis Puzzle — Stage A report
+# Genesis Puzzle — Stage A+B report
 
-Generated 2026-08-23 13:06:34Z from stored facts and SQLite results. Private candidate
+Generated 2026-08-23 15:22:30Z from stored facts and SQLite results. Private candidate
 scalars are redacted and are not stored.
 
 ## Puzzle statement
@@ -16,12 +16,13 @@ block `963629`, publication time `2026-08-22 19:45 UTC`.
 
 Satoshi's Genesis block is a public, narrowly scoped artifact. This researcher
 asks whether any *canonical public field of that block*, taken as a secp256k1
-scalar or as SHA256 of that field, produces a standard Bitcoin address that
-can be compared against a later suspected puzzle output.
+scalar or as SHA256 of that field, produces a standard Bitcoin address or a
+generic single-key P2WSH program that can be compared against a later suspected
+puzzle output.
 
-This is not a general private-key cracking framework. Stage B, brute force,
-PBKDF2/BIP39, Metal, transaction creation, wallet import, spending, and
-broadcasting are out of scope.
+This is not a general private-key cracking framework. Deterministic Stages A
+and B are implemented. Stage C, brute force, PBKDF2/BIP39, Metal, transaction
+creation, wallet import, spending, and broadcasting are out of scope.
 
 ## Known public facts
 
@@ -57,14 +58,14 @@ proofs that must hold after parse:
 3. The one-transaction Merkle root equals the header Merkle root.
 4. Headline and uncompressed pubkey match the canonical document.
 
-`init` re-runs these proofs before any Stage A derivation.
+`init` re-runs these proofs before any Stage A or Stage B derivation.
 
 ## Hypotheses tested in Stage A
 
 Stage A only uses canonical public values and two justified 32-byte hash
 orders (wire/internal and display). It does not expand into case folding,
 separators, dates, newlines, permutations, neighborhoods, repeated hashes, or
-combinations (that is Stage B representation-matrix work).
+combinations.
 
 What was tested, and why:
 
@@ -83,27 +84,34 @@ fingerprints, public keys, and addresses only.
 
 ## Stage A results
 
+Stage A run:
 - status: ok
 - mode: balanced
 - elapsed_seconds: 0.00215729046612978
 - rate_per_second: 10661.522108917692
 - checkpoint: checkpoint-not-needed
 
-
-- total derivations: 23
-- invalid derivations: 1
-- unique valid keys: 22
-- duplicates (extra provenance paths onto an already-seen scalar): 0
+- Stage A derivations: 23
+- Stage A invalid derivations: 1
+- Stage A unique valid keys: 22
+- Stage A duplicate provenance paths: 0
+- cumulative unique valid keys after Stage A: 22
+- cumulative duplicate provenance paths after Stage A: 0
 - addresses by type:
   - uncompressed P2PKH: 22
   - compressed P2PKH: 22
   - compressed P2WPKH: 22
-- known-target matches: 0
+- known-target address matches: 0
 - chain-history state: checked (66 addresses)
 
 No Stage A P2PKH/P2WPKH address equals the suspected P2WSH output. That is expected: a standard-key address cannot match a P2WSH output without knowing or hypothesizing the witness script.
 
 ### Address history
+
+Stage A derived 66 standard addresses (22 unique keys times three types).
+History below is that Stage A address snapshot. Direct P2WSH comparison in
+Stage B uses `SHA256(witnessScript)` against the 32-byte witness program and
+does not need a blockchain-history lookup.
 
 - never seen: 51
 - seen but empty: 0
@@ -112,21 +120,21 @@ No Stage A P2PKH/P2WPKH address equals the suspected P2WSH output. That is expec
 
 Addresses with blockchain history:
 
-- `12AKRNHpFhDSBDD9rSn74VAzZSL3774PxQ` (p2pkh_uncompressed): spent_history; derivations=A-19; transactions=182; balance=0 sats; received=21293065 sats; sent=21293065 sats
+- `12AKRNHpFhDSBDD9rSn74VAzZSL3774PxQ` (p2pkh_uncompressed): spent_history; derivations=A-19,B-029; transactions=182; balance=0 sats; received=21293065 sats; sent=21293065 sats
 - `12PVrgcRWrd1ZCimRxW8H2iLbCiZqk5rmN` (p2pkh_uncompressed): spent_history; derivations=A-18; transactions=2; balance=0 sats; received=60000 sats; sent=60000 sats
 - `14q3BEP6pvmW26CnbXAVgFjpXi9bBzJ22s` (p2pkh_uncompressed): spent_history; derivations=A-15; transactions=4; balance=0 sats; received=2505 sats; sent=2505 sats
 - `164qRoL9B3oxAZCn2RS6kAFejJQyAEcjaw` (p2pkh_uncompressed): spent_history; derivations=A-16; transactions=28; balance=0 sats; received=571253 sats; sent=571253 sats
-- `18Zhv4BXBdqb6GkVVwGBr5ugVYwfGkAdZN` (p2pkh_compressed): spent_history; derivations=A-11; transactions=6; balance=0 sats; received=6463 sats; sent=6463 sats
-- `1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH` (p2pkh_compressed): spent_history; derivations=A-12; transactions=197; balance=0 sats; received=25001029 sats; sent=25001029 sats
-- `1Dt8ty59tU9LkrXG2ocWeSzKFAY8fu6jga` (p2pkh_compressed): spent_history; derivations=A-19; transactions=4; balance=0 sats; received=316000 sats; sent=316000 sats
-- `1EHNa6Q4Jz2uvNExL497mE43ikXhwF6kZm` (p2pkh_uncompressed): spent_history; derivations=A-12; transactions=1475; balance=0 sats; received=784927386 sats; sent=784927386 sats
+- `18Zhv4BXBdqb6GkVVwGBr5ugVYwfGkAdZN` (p2pkh_compressed): spent_history; derivations=A-11,B-093; transactions=6; balance=0 sats; received=6463 sats; sent=6463 sats
+- `1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH` (p2pkh_compressed): spent_history; derivations=A-12,B-035; transactions=197; balance=0 sats; received=25001029 sats; sent=25001029 sats
+- `1Dt8ty59tU9LkrXG2ocWeSzKFAY8fu6jga` (p2pkh_compressed): spent_history; derivations=A-19,B-029; transactions=4; balance=0 sats; received=316000 sats; sent=316000 sats
+- `1EHNa6Q4Jz2uvNExL497mE43ikXhwF6kZm` (p2pkh_uncompressed): spent_history; derivations=A-12,B-035; transactions=1475; balance=0 sats; received=784927386 sats; sent=784927386 sats
 - `1F8oQoSGLMSouTsu94iXGjBNAt43T97dvY` (p2pkh_compressed): spent_history; derivations=A-07; transactions=4; balance=0 sats; received=11000 sats; sent=11000 sats
-- `1KxUVU9DKfdaTLMnXBLS5BZRf56cFnRosk` (p2pkh_uncompressed): spent_history; derivations=A-21; transactions=6; balance=0 sats; received=516960 sats; sent=516960 sats
+- `1KxUVU9DKfdaTLMnXBLS5BZRf56cFnRosk` (p2pkh_uncompressed): spent_history; derivations=A-21,B-049; transactions=6; balance=0 sats; received=516960 sats; sent=516960 sats
 - `1MJp4z3ig498hNATfgHBAnLFhwoZpvw118` (p2pkh_compressed): spent_history; derivations=A-16; transactions=6; balance=0 sats; received=451752 sats; sent=451752 sats
 - `1Nbm3JoDpwS4HRw9WmHaKGAzaeSKXoQ6Ej` (p2pkh_uncompressed): spent_history; derivations=A-07; transactions=24; balance=0 sats; received=3862600 sats; sent=3862600 sats
-- `bc1q34x4pr6m7tpgkg9rsc6qtuza8nfhfvz93895ln` (p2wpkh): spent_history; derivations=A-19; transactions=6; balance=0 sats; received=11401 sats; sent=11401 sats
+- `bc1q34x4pr6m7tpgkg9rsc6qtuza8nfhfvz93895ln` (p2wpkh): spent_history; derivations=A-19,B-029; transactions=6; balance=0 sats; received=11401 sats; sent=11401 sats
 - `bc1qmmqwpsupw836pz50c87ze2l4a8xjmvr6x3ww3m` (p2wpkh): spent_history; derivations=A-16; transactions=2; balance=0 sats; received=9779 sats; sent=9779 sats
-- `bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4` (p2wpkh): spent_history; derivations=A-12; transactions=166; balance=0 sats; received=1447883 sats; sent=1447883 sats
+- `bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4` (p2wpkh): spent_history; derivations=A-12,B-035; transactions=166; balance=0 sats; received=1447883 sats; sent=1447883 sats
 
 ### Interesting observations
 
@@ -137,6 +145,61 @@ Addresses with blockchain history:
   keys (for example direct scalar `1`) are expected to have unrelated test or
   sweep activity. The suspected puzzle output remains the separate P2WSH
   program recorded above.
+
+## Hypotheses tested in Stage B
+
+The suspected target is P2WSH (`bc1qfkhx02v89u2qyyyljeczw6hu9sr437y44t7ae5yf09thrdukfqesnjg2wj`). HASH160(pubkey) is the
+wrong program length and the wrong script template compared with
+`SHA256(witnessScript)`. Stage B therefore does two bounded things:
+
+1. A representation matrix of canonical encodings of primitives physically
+   present in the Genesis block (ASCII decimal with newline, hex case and `0x`
+   prefixes, fixed-width and distinct minimal endian forms, justified hash
+   byte orders, raw header/tx/script/key/block bytes) plus a few exact
+   lower-priority semantic UTF-8 strings. Each recipe is SHA256 of a canonical
+   encoding, or a direct big-endian integer of a canonical fixed 4-byte or
+   8-byte endian byte sequence. No pairwise combinations, dates, typos,
+   neighborhoods, PBKDF2/BIP39, or brute force.
+2. Six generic single-key witness-script templates, in this global priority,
+   compared by exact `SHA256(witnessScript)` and native mainnet P2WSH address
+   against witness program `4dae67a9872f1402109f9670276afc2c0758f895aafddcd089795771b7964833`:
+
+    <compressed pubkey> OP_CHECKSIG
+
+Compressed templates are the modern canonical, descriptor-compatible forms.
+Uncompressed P2WSH pubkeys were tested only as lower-priority
+historical/manual possibilities and are not standard descriptor-compatible.
+
+## Stage B results
+
+Stage B run:
+- status: ok
+- mode: balanced
+- elapsed_seconds: 0.01900291722267866
+- rate_per_second: 5525.467420059579
+- checkpoint: checkpoint-not-needed
+
+- Stage B derivations: 105
+- Stage B invalid derivations: 1
+- cumulative unique valid keys after A+B: 105
+- cumulative duplicate provenance paths after A+B: 21
+- tested witness candidates: 630
+- P2WSH direct target matches: 0
+
+Witness templates in actual priority:
+
+- priority 1: `p2pk_compressed` (compressed; modern canonical / descriptor-compatible); tested 105
+- priority 2: `p2pk_uncompressed` (uncompressed; lower-priority historical/manual possibility, not standard descriptor-compatible); tested 105
+- priority 3: `multisig_1of1_compressed` (compressed; modern canonical / descriptor-compatible); tested 105
+- priority 4: `multisig_1of1_uncompressed` (uncompressed; lower-priority historical/manual possibility, not standard descriptor-compatible); tested 105
+- priority 5: `p2pkh_compressed` (compressed; modern canonical / descriptor-compatible); tested 105
+- priority 6: `p2pkh_uncompressed` (uncompressed; lower-priority historical/manual possibility, not standard descriptor-compatible); tested 105
+
+The 132 Stage-A-only script-template subset is 22 unique Stage A keys times 6 templates. The full combined A+B set is 630 scripts (105 cumulative unique keys times 6 templates). The Stage-A-only subset is contained in the combined set; it is not an extra 132 on top of 630. The executed Stage B run tested 630 witness candidates.
+
+Zero stored witness candidates equal the suspected 32-byte witness program or its native P2WSH address. That does not disprove the puzzle. The announcement target remains `suspected_not_proven`.
+
+All 630 public candidate scripts, programs, addresses, and provenance for the executed Stage B run are stored in SQLite. Scalar material is not stored. This Markdown report does not dump those rows.
 
 ### Derivations
 
@@ -163,52 +226,153 @@ Addresses with blockchain history:
 - `A-21` [valid] SHA256 of the canonical ASCII decimal height. (source `genesis.height`, transform `sha256`, confidence 0.2)
 - `A-22` [valid] SHA256 of the block-hash display-order bytes. (source `genesis.block_hash.display`, transform `sha256`, confidence 0.19)
 - `A-23` [valid] SHA256 of the Merkle-root display-order bytes. (source `genesis.merkle_root.display`, transform `sha256`, confidence 0.19)
+- `B-001` [valid] SHA256 of the ASCII decimal nonce followed by a newline. (source `genesis.header.nonce`, transform `sha256`, confidence 0.34)
+- `B-002` [valid] SHA256 of the lowercase hex nonce without prefix. (source `genesis.header.nonce`, transform `sha256`, confidence 0.34)
+- `B-003` [valid] SHA256 of the uppercase hex nonce without prefix. (source `genesis.header.nonce`, transform `sha256`, confidence 0.34)
+- `B-004` [valid] SHA256 of the 0x-prefixed lowercase hex nonce. (source `genesis.header.nonce`, transform `sha256`, confidence 0.34)
+- `B-005` [valid] SHA256 of the 0X-prefixed uppercase hex nonce. (source `genesis.header.nonce`, transform `sha256`, confidence 0.34)
+- `B-006` [valid] SHA256 of the 4-byte little-endian nonce. (source `genesis.header.nonce`, transform `sha256`, confidence 0.34)
+- `B-007` [valid] Direct big-endian integer of the 4-byte little-endian nonce. (source `genesis.header.nonce`, transform `identity_bytes_be`, confidence 0.34)
+- `B-008` [valid] SHA256 of the 4-byte big-endian nonce. (source `genesis.header.nonce`, transform `sha256`, confidence 0.34)
+- `B-009` [valid] Direct big-endian integer of the 4-byte big-endian nonce. (source `genesis.header.nonce`, transform `identity_bytes_be`, confidence 0.34)
+- `B-010` [valid] SHA256 of the ASCII decimal timestamp followed by a newline. (source `genesis.header.timestamp`, transform `sha256`, confidence 0.33)
+- `B-011` [valid] SHA256 of the lowercase hex timestamp without prefix. (source `genesis.header.timestamp`, transform `sha256`, confidence 0.33)
+- `B-012` [valid] SHA256 of the uppercase hex timestamp without prefix. (source `genesis.header.timestamp`, transform `sha256`, confidence 0.33)
+- `B-013` [valid] SHA256 of the 0x-prefixed lowercase hex timestamp. (source `genesis.header.timestamp`, transform `sha256`, confidence 0.33)
+- `B-014` [valid] SHA256 of the 0X-prefixed uppercase hex timestamp. (source `genesis.header.timestamp`, transform `sha256`, confidence 0.33)
+- `B-015` [valid] SHA256 of the 4-byte little-endian timestamp. (source `genesis.header.timestamp`, transform `sha256`, confidence 0.33)
+- `B-016` [valid] Direct big-endian integer of the 4-byte little-endian timestamp. (source `genesis.header.timestamp`, transform `identity_bytes_be`, confidence 0.33)
+- `B-017` [valid] SHA256 of the 4-byte big-endian timestamp. (source `genesis.header.timestamp`, transform `sha256`, confidence 0.33)
+- `B-018` [valid] Direct big-endian integer of the 4-byte big-endian timestamp. (source `genesis.header.timestamp`, transform `identity_bytes_be`, confidence 0.33)
+- `B-019` [valid] SHA256 of the ASCII decimal bits followed by a newline. (source `genesis.header.bits`, transform `sha256`, confidence 0.32)
+- `B-020` [valid] SHA256 of the lowercase hex bits without prefix. (source `genesis.header.bits`, transform `sha256`, confidence 0.32)
+- `B-021` [valid] SHA256 of the uppercase hex bits without prefix. (source `genesis.header.bits`, transform `sha256`, confidence 0.32)
+- `B-022` [valid] SHA256 of the 0x-prefixed lowercase hex bits. (source `genesis.header.bits`, transform `sha256`, confidence 0.32)
+- `B-023` [valid] SHA256 of the 0X-prefixed uppercase hex bits. (source `genesis.header.bits`, transform `sha256`, confidence 0.32)
+- `B-024` [valid] SHA256 of the 4-byte little-endian bits. (source `genesis.header.bits`, transform `sha256`, confidence 0.32)
+- `B-025` [valid] Direct big-endian integer of the 4-byte little-endian bits. (source `genesis.header.bits`, transform `identity_bytes_be`, confidence 0.32)
+- `B-026` [valid] SHA256 of the 4-byte big-endian bits. (source `genesis.header.bits`, transform `sha256`, confidence 0.32)
+- `B-027` [valid] Direct big-endian integer of the 4-byte big-endian bits. (source `genesis.header.bits`, transform `identity_bytes_be`, confidence 0.32)
+- `B-028` [valid] SHA256 of the ASCII decimal version followed by a newline. (source `genesis.header.version`, transform `sha256`, confidence 0.31)
+- `B-029` [valid] SHA256 of the lowercase hex version without prefix. (source `genesis.header.version`, transform `sha256`, confidence 0.31)
+- `B-030` [valid] SHA256 of the 0x-prefixed lowercase hex version. (source `genesis.header.version`, transform `sha256`, confidence 0.31)
+- `B-031` [valid] SHA256 of the 0X-prefixed uppercase hex version. (source `genesis.header.version`, transform `sha256`, confidence 0.31)
+- `B-032` [valid] SHA256 of the 4-byte little-endian version. (source `genesis.header.version`, transform `sha256`, confidence 0.31)
+- `B-033` [valid] Direct big-endian integer of the 4-byte little-endian version. (source `genesis.header.version`, transform `identity_bytes_be`, confidence 0.31)
+- `B-034` [valid] SHA256 of the 4-byte big-endian version. (source `genesis.header.version`, transform `sha256`, confidence 0.31)
+- `B-035` [valid] Direct big-endian integer of the 4-byte big-endian version. (source `genesis.header.version`, transform `identity_bytes_be`, confidence 0.31)
+- `B-036` [valid] SHA256 of the minimal unsigned big-endian version. (source `genesis.header.version`, transform `sha256`, confidence 0.31)
+- `B-037` [valid] SHA256 of the ASCII decimal reward_sats followed by a newline. (source `genesis.tx.reward_sats`, transform `sha256`, confidence 0.3)
+- `B-038` [valid] SHA256 of the lowercase hex reward_sats without prefix. (source `genesis.tx.reward_sats`, transform `sha256`, confidence 0.3)
+- `B-039` [valid] SHA256 of the uppercase hex reward_sats without prefix. (source `genesis.tx.reward_sats`, transform `sha256`, confidence 0.3)
+- `B-040` [valid] SHA256 of the 0x-prefixed lowercase hex reward_sats. (source `genesis.tx.reward_sats`, transform `sha256`, confidence 0.3)
+- `B-041` [valid] SHA256 of the 0X-prefixed uppercase hex reward_sats. (source `genesis.tx.reward_sats`, transform `sha256`, confidence 0.3)
+- `B-042` [valid] SHA256 of the 8-byte little-endian reward_sats. (source `genesis.tx.reward_sats`, transform `sha256`, confidence 0.3)
+- `B-043` [valid] Direct big-endian integer of the 8-byte little-endian reward_sats. (source `genesis.tx.reward_sats`, transform `identity_bytes_be`, confidence 0.3)
+- `B-044` [valid] SHA256 of the 8-byte big-endian reward_sats. (source `genesis.tx.reward_sats`, transform `sha256`, confidence 0.3)
+- `B-045` [valid] Direct big-endian integer of the 8-byte big-endian reward_sats. (source `genesis.tx.reward_sats`, transform `identity_bytes_be`, confidence 0.3)
+- `B-046` [valid] SHA256 of the minimal unsigned big-endian reward_sats. (source `genesis.tx.reward_sats`, transform `sha256`, confidence 0.3)
+- `B-047` [valid] SHA256 of the minimal unsigned little-endian reward_sats. (source `genesis.tx.reward_sats`, transform `sha256`, confidence 0.3)
+- `B-048` [valid] SHA256 of the ASCII decimal height followed by a newline. (source `genesis.height`, transform `sha256`, confidence 0.22)
+- `B-049` [valid] SHA256 of the lowercase hex height without prefix. (source `genesis.height`, transform `sha256`, confidence 0.22)
+- `B-050` [valid] SHA256 of the 0x-prefixed lowercase hex height. (source `genesis.height`, transform `sha256`, confidence 0.22)
+- `B-051` [valid] SHA256 of the 0X-prefixed uppercase hex height. (source `genesis.height`, transform `sha256`, confidence 0.22)
+- `B-052` [valid] SHA256 of the 4-byte little-endian height. (source `genesis.height`, transform `sha256`, confidence 0.22)
+- `B-053` [eliminated] Direct big-endian integer of the 4-byte little-endian height. (source `genesis.height`, transform `identity_bytes_be`, confidence 0.22)
+- `B-054` [valid] SHA256 of the minimal unsigned big-endian height. (source `genesis.height`, transform `sha256`, confidence 0.22)
+- `B-055` [valid] SHA256 of the block hash raw/wire bytes. (source `genesis.block_hash`, transform `sha256`, confidence 0.21)
+- `B-056` [valid] SHA256 of the block hash display-order bytes. (source `genesis.block_hash`, transform `sha256`, confidence 0.21)
+- `B-057` [valid] SHA256 of the lowercase ASCII hex block hash in wire order. (source `genesis.block_hash`, transform `sha256`, confidence 0.21)
+- `B-058` [valid] SHA256 of the uppercase ASCII hex block hash in wire order. (source `genesis.block_hash`, transform `sha256`, confidence 0.21)
+- `B-059` [valid] SHA256 of the lowercase ASCII hex block hash in display order. (source `genesis.block_hash`, transform `sha256`, confidence 0.21)
+- `B-060` [valid] SHA256 of the uppercase ASCII hex block hash in display order. (source `genesis.block_hash`, transform `sha256`, confidence 0.21)
+- `B-061` [valid] SHA256 of the lowercase display ASCII hex block hash followed by a newline. (source `genesis.block_hash`, transform `sha256`, confidence 0.21)
+- `B-062` [valid] SHA256 of the Merkle root raw/wire bytes. (source `genesis.merkle_root`, transform `sha256`, confidence 0.2)
+- `B-063` [valid] SHA256 of the Merkle root display-order bytes. (source `genesis.merkle_root`, transform `sha256`, confidence 0.2)
+- `B-064` [valid] SHA256 of the lowercase ASCII hex Merkle root in wire order. (source `genesis.merkle_root`, transform `sha256`, confidence 0.2)
+- `B-065` [valid] SHA256 of the uppercase ASCII hex Merkle root in wire order. (source `genesis.merkle_root`, transform `sha256`, confidence 0.2)
+- `B-066` [valid] SHA256 of the lowercase ASCII hex Merkle root in display order. (source `genesis.merkle_root`, transform `sha256`, confidence 0.2)
+- `B-067` [valid] SHA256 of the uppercase ASCII hex Merkle root in display order. (source `genesis.merkle_root`, transform `sha256`, confidence 0.2)
+- `B-068` [valid] SHA256 of the lowercase display ASCII hex Merkle root followed by a newline. (source `genesis.merkle_root`, transform `sha256`, confidence 0.2)
+- `B-069` [valid] SHA256 of the coinbase txid raw/wire bytes. (source `genesis.txid`, transform `sha256`, confidence 0.19)
+- `B-070` [valid] SHA256 of the coinbase txid display-order bytes. (source `genesis.txid`, transform `sha256`, confidence 0.19)
+- `B-071` [valid] SHA256 of the lowercase ASCII hex coinbase txid in wire order. (source `genesis.txid`, transform `sha256`, confidence 0.19)
+- `B-072` [valid] SHA256 of the uppercase ASCII hex coinbase txid in wire order. (source `genesis.txid`, transform `sha256`, confidence 0.19)
+- `B-073` [valid] SHA256 of the lowercase ASCII hex coinbase txid in display order. (source `genesis.txid`, transform `sha256`, confidence 0.19)
+- `B-074` [valid] SHA256 of the uppercase ASCII hex coinbase txid in display order. (source `genesis.txid`, transform `sha256`, confidence 0.19)
+- `B-075` [valid] SHA256 of the lowercase display ASCII hex coinbase txid followed by a newline. (source `genesis.txid`, transform `sha256`, confidence 0.19)
+- `B-076` [valid] SHA256 of the previous block hash. (source `genesis.header.previous_hash`, transform `sha256`, confidence 0.17)
+- `B-077` [valid] SHA256 of the lowercase ASCII hex previous block hash. (source `genesis.header.previous_hash`, transform `sha256`, confidence 0.17)
+- `B-078` [valid] SHA256 of the expanded target. (source `genesis.header.target`, transform `sha256`, confidence 0.16)
+- `B-079` [valid] SHA256 of the lowercase ASCII hex expanded target. (source `genesis.header.target`, transform `sha256`, confidence 0.16)
+- `B-080` [valid] SHA256 of the uppercase ASCII hex expanded target. (source `genesis.header.target`, transform `sha256`, confidence 0.16)
+- `B-081` [valid] SHA256 of the raw 80-byte header. (source `genesis.header.raw`, transform `sha256`, confidence 0.14)
+- `B-082` [valid] SHA256 of the lowercase ASCII hex raw 80-byte header. (source `genesis.header.raw`, transform `sha256`, confidence 0.14)
+- `B-083` [valid] SHA256 of the uppercase ASCII hex raw 80-byte header. (source `genesis.header.raw`, transform `sha256`, confidence 0.14)
+- `B-084` [valid] SHA256 of the raw coinbase transaction. (source `genesis.tx.raw`, transform `sha256`, confidence 0.13)
+- `B-085` [valid] SHA256 of the lowercase ASCII hex raw coinbase transaction. (source `genesis.tx.raw`, transform `sha256`, confidence 0.13)
+- `B-086` [valid] SHA256 of the uppercase ASCII hex raw coinbase transaction. (source `genesis.tx.raw`, transform `sha256`, confidence 0.13)
+- `B-087` [valid] SHA256 of the coinbase scriptSig. (source `genesis.coinbase.script_sig`, transform `sha256`, confidence 0.12)
+- `B-088` [valid] SHA256 of the lowercase ASCII hex coinbase scriptSig. (source `genesis.coinbase.script_sig`, transform `sha256`, confidence 0.12)
+- `B-089` [valid] SHA256 of the uppercase ASCII hex coinbase scriptSig. (source `genesis.coinbase.script_sig`, transform `sha256`, confidence 0.12)
+- `B-090` [valid] SHA256 of the coinbase scriptPubKey. (source `genesis.coinbase.script_pubkey`, transform `sha256`, confidence 0.11)
+- `B-091` [valid] SHA256 of the lowercase ASCII hex coinbase scriptPubKey. (source `genesis.coinbase.script_pubkey`, transform `sha256`, confidence 0.11)
+- `B-092` [valid] SHA256 of the uppercase ASCII hex coinbase scriptPubKey. (source `genesis.coinbase.script_pubkey`, transform `sha256`, confidence 0.11)
+- `B-093` [valid] SHA256 of the Genesis public key. (source `genesis.coinbase.pubkey`, transform `sha256`, confidence 0.1)
+- `B-094` [valid] SHA256 of the lowercase ASCII hex Genesis public key. (source `genesis.coinbase.pubkey`, transform `sha256`, confidence 0.1)
+- `B-095` [valid] SHA256 of the uppercase ASCII hex Genesis public key. (source `genesis.coinbase.pubkey`, transform `sha256`, confidence 0.1)
+- `B-096` [valid] SHA256 of the complete raw Genesis block. (source `genesis.block.raw`, transform `sha256`, confidence 0.09)
+- `B-097` [valid] SHA256 of the lowercase ASCII hex complete raw Genesis block. (source `genesis.block.raw`, transform `sha256`, confidence 0.09)
+- `B-098` [valid] SHA256 of the uppercase ASCII hex complete raw Genesis block. (source `genesis.block.raw`, transform `sha256`, confidence 0.09)
+- `B-099` [valid] SHA256 of the exact coinbase headline UTF-8 bytes followed by a newline. (source `genesis.coinbase.headline`, transform `sha256`, confidence 0.08)
+- `B-100` [valid] SHA256 of the lowercase coinbase headline UTF-8 bytes. (source `genesis.coinbase.headline`, transform `sha256`, confidence 0.08)
+- `B-101` [valid] SHA256 of the uppercase coinbase headline UTF-8 bytes. (source `genesis.coinbase.headline`, transform `sha256`, confidence 0.08)
+- `B-102` [valid] SHA256 of the exact UTF-8 string 'Satoshi Nakamoto'. (source `text.satoshi_nakamoto`, transform `sha256`, confidence 0.04)
+- `B-103` [valid] SHA256 of the exact UTF-8 string 'Bitcoin'. (source `text.bitcoin`, transform `sha256`, confidence 0.04)
+- `B-104` [valid] SHA256 of the exact UTF-8 string 'genesis'. (source `text.genesis`, transform `sha256`, confidence 0.04)
+- `B-105` [valid] SHA256 of the exact UTF-8 string 'genesis block'. (source `text.genesis_block`, transform `sha256`, confidence 0.04)
 
 ### Eliminated hypotheses
 
 - `A-14`: height_zero_invalid_direct_scalar
+- `B-053`: scalar_out_of_range
 
 ### Remaining hypotheses
 
-Stage A public-key hypotheses remain open unless their public address history
-or the suspected target script provides evidence. Remaining valid derivation
-ids: `A-01`, `A-02`, `A-03`, `A-04`, `A-05`, `A-06`, `A-07`, `A-08`, `A-09`, `A-10`, `A-11`, `A-12`, `A-13`, `A-15`, `A-16`, `A-17`, `A-18`, `A-19`, `A-20`, `A-21`, `A-22`, `A-23`.
+126 stored valid derivation ids remain open as public-key hypotheses, not as matches. They are listed once under Derivations. Stage A P2PKH/P2WPKH addresses still do not test the P2WSH program. The six generic single-key P2WSH templates did not match the target. Other scripts, combinations, and encodings remain untested.
 
-They are not claims of a match. They are simply scalars that produced standard
-P2PKH/P2WPKH addresses which do not, by themselves, test a P2WSH output.
+A miss of these six templates is not a proof that no puzzle exists. Remaining open work is other scripts, other encodings, and the bounded Stage C experiment below.
 
-## P2WSH gap
+## Next highest-value Stage C experiment (not executed)
 
-The suspected target is P2WSH (`bc1qfkhx02v89u2qyyyljeczw6hu9sr437y44t7ae5yf09thrdukfqesnjg2wj`).
-Standard P2PKH and P2WPKH derivations from Stage A public keys cannot directly
-test its unknown witness script. A HASH160(pubkey) is the wrong program length
-and the wrong script template compared with SHA256(witnessScript).
+Hypothesis, not a claim: after the executed Stage A+B set, the single
+highest-value next experiment is a *bounded pairwise combination* of the
+actual nonce and timestamp ASCII decimal values (`2083236893` and
+`1231006505`) in both orders (`nonce || separator || timestamp` and
+`timestamp || separator || nonce`) with exactly these seven separators:
 
-## Next highest-value Stage B experiment (not executed)
+1. empty string `""`
+2. colon `":"`
+3. pipe `"|"`
+4. hyphen `"-"`
+5. underscore `"_"`
+6. ASCII space `" "`
+7. ASCII newline `"\n"`
 
-Hypothesis, not a claim: before expanding a full representation matrix, test a
-narrowly bounded set of *canonical single-key witness-script templates* built
-from the Stage A compressed public keys, especially:
-
-    <compressed pubkey> OP_CHECKSIG
-
-That preserves the Genesis P2PK motif (a single key immediately followed by
-CHECKSIG) inside a P2WSH program. Compare `SHA256(witnessScript)` against the
-suspected 32-byte witness program
-`4dae67a9872f1402109f9670276afc2c0758f895aafddcd089795771b7964833`.
-
-Do not execute that experiment in Milestone 1. Do not brute-force, do not
-search neighborhoods, and do not treat a template miss as proof that no
-puzzle exists.
+SHA256 each of those 14 public strings, then apply the same six P2WSH
+templates. Do not execute Stage C here. Do not add broader combinations,
+extra fields, dates, neighborhoods, or brute force.
 
 ## Resource and safety notes
 
-- Balanced mode is the default. Stage A is sequential.
+- Balanced mode is the default. Stage A and Stage B are sequential.
 - Pause/resume/checkpointing are future bounded-search features and are not
   needed here (`checkpoint-not-needed`).
 - GPU is disabled. No temperature is measured.
-- Offline is the default. Remote history checks are explicit, batched, and
-  send derived public addresses only.
+- Offline is the default. Stage B never queries chain history. Remote history
+  checks are explicit, batched, and send derived public addresses only.
+- Do not paste candidate scalars into a wallet. This tool will not import
+  keys, build transactions, or broadcast.
 
 ## Public verification sources
 

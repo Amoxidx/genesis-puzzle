@@ -416,3 +416,17 @@ def preview_lines(recipes: Iterable[Recipe]) -> List[str]:
         lines.append(f"    public_input_hex: {recipe.public_input_bytes.hex()}")
         lines.append("    private_scalar: REDACTED (not derived in preview)")
     return lines
+
+
+def recipes_for_stage(block: ParsedBlock, stage: str) -> List[Recipe]:
+    if stage == "A":
+        return stage_a_recipes(block)
+    if stage == "B":
+        from genesis_puzzle.stage_b import stage_b_recipes
+
+        return stage_b_recipes(block)
+    raise ValueError(f"unsupported stage {stage!r}")
+
+
+def preview_for_stage(block: ParsedBlock, stage: str) -> List[str]:
+    return preview_lines(recipes_for_stage(block, stage))

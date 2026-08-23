@@ -46,5 +46,7 @@ def run_benchmark(block: ParsedBlock) -> List[str]:
     lines = ["local throughput (measured, not hard-coded):"]
     for name, (iterations, elapsed, rate) in measurements.items():
         lines.append(f"  {name}: {iterations} iters in {elapsed:.4f}s -> {rate:.1f} /s")
-    lines.append("Stage A does not need pause/resume; these numbers are laptop-local.")
+    lines.append(
+        "Stage A+B deterministic stages do not need pause/resume; these numbers are laptop-local."
+    )
     return lines

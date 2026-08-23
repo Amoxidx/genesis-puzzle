@@ -103,9 +103,13 @@ CREATE TABLE IF NOT EXISTS witness_candidates (
     derivation_ids TEXT NOT NULL,
     matched INTEGER NOT NULL,
     run_id INTEGER NOT NULL REFERENCES runs(id),
+    first_tested_stage TEXT NOT NULL DEFAULT 'B'
+        CHECK (first_tested_stage IN ('B', 'C')),
     UNIQUE(fingerprint, target_id, template_id)
 );
 """
+
+ALLOWED_WITNESS_STAGES = frozenset({"B", "C"})
 
 
 def restrict_owner_only(path: Path) -> None:
@@ -147,9 +151,38 @@ def connect(path: Path) -> Store:
     }
     if "tested_candidate_count" not in existing_run_columns:
         conn.execute("ALTER TABLE runs ADD COLUMN tested_candidate_count INTEGER")
+    _migrate_witness_candidates_first_tested_stage(conn)
     conn.commit()
     restrict_owner_only(path)
     return Store(path=path, conn=conn)
+
+
+def validate_first_tested_stage(stage: str) -> str:
+    if stage not in ALLOWED_WITNESS_STAGES:
+        raise ValueError(f"first_tested_stage must be 'B' or 'C', got {stage!r}")
+    return stage
+
+
+def _migrate_witness_candidates_first_tested_stage(conn: sqlite3.Connection) -> None:
+    existing_columns = {
+        str(row[1]) for row in conn.execute("PRAGMA table_info(witness_candidates)").fetchall()
+    }
+    if "first_tested_stage" in existing_columns:
+        return
+    conn.execute("SAVEPOINT migrate_witness_first_tested_stage")
+    try:
+        conn.execute(
+            """
+            ALTER TABLE witness_candidates
+            ADD COLUMN first_tested_stage TEXT NOT NULL DEFAULT 'B'
+            CHECK (first_tested_stage IN ('B', 'C'))
+            """
+        )
+        conn.execute("RELEASE SAVEPOINT migrate_witness_first_tested_stage")
+    except Exception:
+        conn.execute("ROLLBACK TO SAVEPOINT migrate_witness_first_tested_stage")
+        conn.execute("RELEASE SAVEPOINT migrate_witness_first_tested_stage")
+        raise
 
 
 @contextmanager
@@ -361,14 +394,16 @@ def upsert_witness_candidate(
     derivation_ids: str,
     matched: bool,
     run_id: int,
+    first_tested_stage: str = "B",
 ) -> None:
+    stage = validate_first_tested_stage(first_tested_stage)
     conn.execute(
         """
         INSERT INTO witness_candidates (
             fingerprint, target_id, template_id, template_name, priority,
             pubkey_mode, pubkey_hex, witness_script_hex, witness_program_hex,
-            address, derivation_ids, matched, run_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            address, derivation_ids, matched, run_id, first_tested_stage
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(fingerprint, target_id, template_id) DO UPDATE SET
             template_name = excluded.template_name,
             priority = excluded.priority,
@@ -379,7 +414,8 @@ def upsert_witness_candidate(
             address = excluded.address,
             derivation_ids = excluded.derivation_ids,
             matched = excluded.matched,
-            run_id = excluded.run_id
+            run_id = excluded.run_id,
+            first_tested_stage = excluded.first_tested_stage
         """,
         (
             fingerprint,
@@ -395,16 +431,38 @@ def upsert_witness_candidate(
             derivation_ids,
             int(matched),
             run_id,
+            stage,
         ),
     )
 
 
-def list_witness_candidates(conn: sqlite3.Connection) -> List[sqlite3.Row]:
-    return fetchall(conn, "SELECT * FROM witness_candidates ORDER BY id")
+def list_witness_candidates(
+    conn: sqlite3.Connection,
+    first_tested_stage: Optional[str] = None,
+) -> List[sqlite3.Row]:
+    if first_tested_stage is None:
+        return fetchall(conn, "SELECT * FROM witness_candidates ORDER BY id")
+    stage = validate_first_tested_stage(first_tested_stage)
+    return fetchall(
+        conn,
+        "SELECT * FROM witness_candidates WHERE first_tested_stage = ? ORDER BY id",
+        (stage,),
+    )
 
 
-def witness_candidate_count(conn: sqlite3.Connection) -> int:
-    return int(conn.execute("SELECT COUNT(*) FROM witness_candidates").fetchone()[0])
+def witness_candidate_count(
+    conn: sqlite3.Connection,
+    first_tested_stage: Optional[str] = None,
+) -> int:
+    if first_tested_stage is None:
+        row = conn.execute("SELECT COUNT(*) FROM witness_candidates").fetchone()
+    else:
+        stage = validate_first_tested_stage(first_tested_stage)
+        row = conn.execute(
+            "SELECT COUNT(*) FROM witness_candidates WHERE first_tested_stage = ?",
+            (stage,),
+        ).fetchone()
+    return int(row[0])
 
 
 def witness_match_count(conn: sqlite3.Connection) -> int:
@@ -427,6 +485,66 @@ def replace_witness_candidates(
         )
     for row in rows:
         upsert_witness_candidate(conn, **row)
+
+
+def replace_stage_c_witness_candidates(
+    conn: sqlite3.Connection,
+    target_ids: Sequence[str],
+    rows: Sequence[Dict[str, Any]],
+) -> None:
+    """Replace Stage C rows for targets only. Preserve B rows. Call inside a transaction."""
+    for row in rows:
+        if row.get("first_tested_stage") != "C":
+            raise ValueError(
+                "Stage C replacement requires first_tested_stage='C' on every payload row"
+            )
+        existing_b = conn.execute(
+            """
+            SELECT 1 FROM witness_candidates
+            WHERE first_tested_stage = 'B'
+              AND fingerprint = ?
+              AND target_id = ?
+              AND template_id = ?
+            """,
+            (row["fingerprint"], row["target_id"], row["template_id"]),
+        ).fetchone()
+        if existing_b is not None:
+            raise ValueError(
+                "Stage C replacement would collide with an existing B row for "
+                f"fingerprint={row['fingerprint']!r} target_id={row['target_id']!r} "
+                f"template_id={row['template_id']!r}"
+            )
+    if target_ids:
+        placeholders = ",".join("?" for _ in target_ids)
+        conn.execute(
+            f"""
+            DELETE FROM witness_candidates
+            WHERE first_tested_stage = 'C' AND target_id IN ({placeholders})
+            """,
+            tuple(target_ids),
+        )
+    for row in rows:
+        upsert_witness_candidate(conn, **row)
+
+
+def invalidate_stage_c_current_state(conn: sqlite3.Connection) -> None:
+    """Drop current Stage C witness/derivations and orphan keys. Caller owns the transaction."""
+    conn.execute("DELETE FROM witness_candidates WHERE first_tested_stage = 'C'")
+    conn.execute("DELETE FROM derivations WHERE stage = 'C'")
+    conn.execute(
+        """
+        DELETE FROM keys
+        WHERE NOT EXISTS (
+            SELECT 1 FROM derivations AS d WHERE d.fingerprint = keys.fingerprint
+        )
+          AND NOT EXISTS (
+            SELECT 1 FROM addresses AS a WHERE a.fingerprint = keys.fingerprint
+        )
+          AND NOT EXISTS (
+            SELECT 1 FROM witness_candidates AS w WHERE w.fingerprint = keys.fingerprint
+        )
+        """
+    )
 
 
 def latest_run(conn: sqlite3.Connection) -> Optional[sqlite3.Row]:

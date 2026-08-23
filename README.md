@@ -1,27 +1,31 @@
 # genesis-puzzle
 
 Local, auditable researcher for a **narrowly scoped** Bitcoin Genesis puzzle.
-This release implements deterministic **Stages A and B**.
+This release implements deterministic **Stages A, B, and C** as an offline
+sequential pipeline: A then B then C.
 
 This is not a general-purpose address or private-key cracking framework.
-Stage C, brute force, PBKDF2/BIP39, Metal, transaction creation, wallet
-import, spending, and broadcasting remain out of scope.
+Stage D is proposed, not executed. Brute force, PBKDF2/BIP39, Metal,
+transaction creation, wallet import, spending, and broadcasting remain out of
+scope.
 
 Private candidate scalars are never printed, logged, stored in SQLite, written
 into reports, sent to APIs, copied to the clipboard, or interpolated into a
 shell command. There is no reveal or export command.
 
-Offline is the default. Stage B is offline and requires a completed Stage A
-run. Remote history checks are explicit (`history-check --yes-network`), use
-blockchain.info's multi-address endpoint, and send only derived public
-addresses. One HTTP request is made per configured batch, never one request
-per address.
+Offline is the default. Stage B and Stage C are offline. Stage B requires a
+completed Stage A run. Stage C requires completed Stage A and Stage B runs in
+the same database. Remote history checks are explicit
+(`history-check --yes-network`), use blockchain.info's multi-address endpoint,
+and send only derived public addresses. One HTTP request is made per configured
+batch, never one request per address. Stage C itself does not look up live
+chain history.
 
 ## Layout
 
 - `data/genesis.json` — canonical public Genesis facts
 - `data/known_targets.json` — public announcement target, labelled `suspected_puzzle_output`
-- `src/genesis_puzzle/` — parser, Stage A/B generators, P2WSH templates, secp256k1/address primitives, SQLite, CLI
+- `src/genesis_puzzle/` — parser, Stage A/B/C generators, P2WSH templates, secp256k1/address primitives, SQLite, CLI
 - `tests/` — reference vectors and CLI smoke
 - `research/report.md` — regenerated from stored facts/results
 - `config.toml` — eco / balanced / max resource caps (balanced default, GPU false)
@@ -65,6 +69,8 @@ genesis-puzzle init
 genesis-puzzle run --stage A --mode balanced
 genesis-puzzle candidates --stage B
 genesis-puzzle run --stage B --mode balanced
+genesis-puzzle candidates --stage C
+genesis-puzzle run --stage C --mode balanced
 genesis-puzzle report
 ```
 
@@ -78,7 +84,7 @@ genesis-puzzle history-check --yes-network
 ```
 
 `run --mode` is `eco`, `balanced`, or `max`. Balanced is the default from
-`config.toml`. Stages A and B are tiny and sequential in every mode; extra
+`config.toml`. Stages A, B, and C are tiny and sequential in every mode; extra
 workers are rejected. Pause, resume, and checkpointing are **future
 bounded-search features** and are not implemented because these deterministic
 stages do not need them. `status` always reports `checkpoint=not-needed`.
@@ -88,16 +94,19 @@ thermal-limit, and checkpoint defaults for future bounded searches. This
 release does not consume those values and does not claim access to macOS
 temperature sensors.
 
-`candidates --stage A` or `--stage B` prints ordered recipes and provenance
-without deriving a private scalar. Stage B preview also lists the six witness
-templates.
+`candidates --stage A`, `--stage B`, or `--stage C` prints ordered recipes and
+provenance without deriving a private scalar. Stage B and Stage C previews also
+list the six witness templates.
 
 Stage B is offline. It needs a completed Stage A result in the same database.
-It does not query chain history. Direct P2WSH comparison is
+Stage C is offline. It needs completed Stage A and Stage B results in the same
+database. Neither stage queries chain history. Direct P2WSH comparison is
 `SHA256(witnessScript)` plus the native address.
 
 `history-check` is optional, explicit, and offline unless `--yes-network` is
 passed. It may send only derived public addresses.
+
+There is no `run --stage D` command. Do not execute Stage D.
 
 ## Quality gate
 
@@ -114,9 +123,10 @@ python -m pip install --force-reinstall --no-deps dist/genesis_puzzle-*.whl
 ```
 
 Tests stay laptop-safe and do not start a worker pool. The installed-wheel
-smoke previews Stage B and executes Stage A then Stage B outside the checkout.
+smoke previews Stage C and then executes Stage A, Stage B, and Stage C
+sequentially outside the checkout.
 
-## Stages A and B
+## Stages A, B, and C
 
 Stage A is deterministic, ordered, and deduplicated by exact private scalar
 (fingerprint stored, scalar discarded). Each unique valid key yields exactly
@@ -133,9 +143,27 @@ The 132 Stage-A-only scripts are the 22 unique Stage A keys times six
 templates. They are a subset of the 630 combined A+B scripts, not an extra
 count.
 
+Stage C is a bounded pairwise combination of the actual Genesis nonce and
+timestamp as ASCII decimal values, in both orders (`nonce || separator ||
+timestamp` and `timestamp || separator || nonce`), with exactly these seven
+separators: empty string, colon, pipe, hyphen, underscore, ASCII space, and
+ASCII newline. Each of those 14 public strings is SHA256'd, then the same six
+P2WSH templates are applied. Canonical expected counts: 14 Stage C recipes, 14
+new unique keys, 119 cumulative unique keys after A+B+C, 84 new Stage C
+scripts, 714 combined B+C scripts. Direct comparison remains
+`SHA256(witnessScript)` plus the native address. A no-match on this bounded
+set does not solve the puzzle, does not disprove it, and is not a live chain
+lookup.
+
 Compressed templates are modern canonical / descriptor-compatible.
 Uncompressed P2WSH pubkeys were tested only as lower-priority
 historical/manual possibilities.
+
+Stage D is not executed. The next proposed Stage D experiment is a bounded
+direct-scalar neighborhood of the actual nonce and timestamp using integer
+offsets `-10..-1` and `+1..+10`, excluding zero: twenty nonce offsets and
+twenty timestamp offsets, 40 keys, at most 240 scripts. Do not hash. Do not
+form combinations. Do not enlarge that window.
 
 ## Safety
 

@@ -189,6 +189,7 @@ def test_stage_a_then_b_real_target_counts_idempotent_and_redacted(
     assert store.conn.execute("SELECT COUNT(*) FROM addresses").fetchone()[0] == address_rows
     assert store.conn.execute("SELECT COUNT(*) FROM history").fetchone()[0] == history_rows_n
     assert len(rows) == 630
+    assert all(row["first_tested_stage"] == "B" for row in rows)
     assert run["stage"] == "B"
     assert run["status"] == "ok"
     assert run["derivation_count"] == 105
@@ -237,6 +238,7 @@ def test_stage_a_then_b_real_target_counts_idempotent_and_redacted(
     rows2 = list_witness_candidates(store.conn)
     after_rerun = counts(store.conn)
     assert len(rows2) == 630
+    assert all(row["first_tested_stage"] == "B" for row in rows2)
     assert after_rerun["witness_candidates"] == 630
     assert after_rerun["unique_keys"] == 105
     assert (

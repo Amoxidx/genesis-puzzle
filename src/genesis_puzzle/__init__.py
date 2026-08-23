@@ -1,3 +1,3 @@
-"""Local auditable Bitcoin Genesis Puzzle researcher (deterministic Stage A and Stage B)."""
+"""Local auditable Bitcoin Genesis Puzzle researcher (deterministic A+B+C, sequential/offline)."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

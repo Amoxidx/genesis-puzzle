@@ -21,43 +21,71 @@ def minimal_push(data: bytes) -> bytes:
     return bytes([length]) + data
 
 
+def _require_pubkey_mode(mode: str, pubkey: bytes) -> None:
+    if mode == "compressed":
+        if len(pubkey) != 33 or pubkey[0] not in (2, 3):
+            raise ValueError("compressed pubkey must be 33 bytes starting with 0x02 or 0x03")
+        return
+    if mode == "uncompressed":
+        if len(pubkey) != 65 or pubkey[0] != 0x04:
+            raise ValueError("uncompressed pubkey must be 65 bytes starting with 0x04")
+        return
+    raise ValueError("pubkey mode must be compressed or uncompressed")
+
+
 def _require_pubkeys(uncompressed: bytes, compressed: bytes) -> None:
-    if len(compressed) != 33 or compressed[0] not in (2, 3):
-        raise ValueError("compressed pubkey must be 33 bytes starting with 0x02 or 0x03")
-    if len(uncompressed) != 65 or uncompressed[0] != 0x04:
-        raise ValueError("uncompressed pubkey must be 65 bytes starting with 0x04")
+    _require_pubkey_mode("compressed", compressed)
+    _require_pubkey_mode("uncompressed", uncompressed)
+
+
+def _p2pk_script(pubkey: bytes) -> bytes:
+    return minimal_push(pubkey) + bytes([OP_CHECKSIG])
+
+
+def _multisig_1of1_script(pubkey: bytes) -> bytes:
+    return bytes([OP_1]) + minimal_push(pubkey) + bytes([OP_1, OP_CHECKMULTISIG])
+
+
+def _p2pkh_script(pubkey: bytes) -> bytes:
+    return (
+        bytes([OP_DUP, OP_HASH160])
+        + minimal_push(hash160(pubkey))
+        + bytes([OP_EQUALVERIFY, OP_CHECKSIG])
+    )
 
 
 def _p2pk_compressed(compressed: bytes, _uncompressed: bytes) -> bytes:
-    return minimal_push(compressed) + bytes([OP_CHECKSIG])
+    return _p2pk_script(compressed)
 
 
 def _p2pk_uncompressed(_compressed: bytes, uncompressed: bytes) -> bytes:
-    return minimal_push(uncompressed) + bytes([OP_CHECKSIG])
+    return _p2pk_script(uncompressed)
 
 
 def _multisig_1of1_compressed(compressed: bytes, _uncompressed: bytes) -> bytes:
-    return bytes([OP_1]) + minimal_push(compressed) + bytes([OP_1, OP_CHECKMULTISIG])
+    return _multisig_1of1_script(compressed)
 
 
 def _multisig_1of1_uncompressed(_compressed: bytes, uncompressed: bytes) -> bytes:
-    return bytes([OP_1]) + minimal_push(uncompressed) + bytes([OP_1, OP_CHECKMULTISIG])
+    return _multisig_1of1_script(uncompressed)
 
 
 def _p2pkh_compressed(compressed: bytes, _uncompressed: bytes) -> bytes:
-    return (
-        bytes([OP_DUP, OP_HASH160])
-        + minimal_push(hash160(compressed))
-        + bytes([OP_EQUALVERIFY, OP_CHECKSIG])
-    )
+    return _p2pkh_script(compressed)
 
 
 def _p2pkh_uncompressed(_compressed: bytes, uncompressed: bytes) -> bytes:
-    return (
-        bytes([OP_DUP, OP_HASH160])
-        + minimal_push(hash160(uncompressed))
-        + bytes([OP_EQUALVERIFY, OP_CHECKSIG])
-    )
+    return _p2pkh_script(uncompressed)
+
+
+_SCRIPT_FROM_PUBKEY = {
+    "p2pk_compressed": _p2pk_script,
+    "p2pk_uncompressed": _p2pk_script,
+    "multisig_1of1_compressed": _multisig_1of1_script,
+    "multisig_1of1_uncompressed": _multisig_1of1_script,
+    "p2pkh_compressed": _p2pkh_script,
+    "p2pkh_uncompressed": _p2pkh_script,
+}
 
 
 @dataclass(frozen=True)
@@ -134,11 +162,21 @@ def p2wsh_program_and_address(witness_script: bytes) -> Tuple[bytes, str]:
     return program, encode_segwit_address("bc", 0, program)
 
 
+def expected_witness_script(template: WitnessTemplate, pubkey: bytes) -> bytes:
+    """Exact p2pk, 1-of-1, or p2pkh script from one pubkey of the template's declared mode."""
+    builder = _SCRIPT_FROM_PUBKEY.get(template.template_id)
+    if builder is None:
+        raise ValueError(f"unknown witness template {template.template_id}")
+    _require_pubkey_mode(template.pubkey_mode, pubkey)
+    return builder(pubkey)
+
+
 def build_witness_script(
     template: WitnessTemplate, uncompressed: bytes, compressed: bytes
 ) -> bytes:
     _require_pubkeys(uncompressed, compressed)
-    return template.builder(compressed, uncompressed)
+    pubkey = compressed if template.pubkey_mode == "compressed" else uncompressed
+    return expected_witness_script(template, pubkey)
 
 
 def build_p2wsh_candidate(

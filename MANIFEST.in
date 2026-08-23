@@ -1,0 +1,6 @@
+include LICENSE
+include config.toml
+include research/report.md
+include scripts/quality-gate.sh
+recursive-include data *.json
+recursive-include tests *.py

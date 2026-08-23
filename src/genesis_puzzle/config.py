@@ -69,7 +69,7 @@ def load_config(path: Path) -> AppConfig:
             description=str(body.get("description", "")),
         )
         if modes[name].workers != 1:
-            raise ValueError("Stage A is sequential; workers must stay 1")
+            raise ValueError("Stage A+B deterministic stages are sequential; workers must stay 1")
     history_raw = payload.get("history", {})
     history = HistoryConfig(
         batch_size=int(history_raw.get("batch_size", 10)),
@@ -81,7 +81,7 @@ def load_config(path: Path) -> AppConfig:
     if default_mode not in modes:
         raise ValueError("default_mode is not defined")
     if gpu:
-        raise ValueError("GPU is disabled in Milestone 1")
+        raise ValueError("GPU is disabled for deterministic Stages A+B")
     return AppConfig(
         default_mode=default_mode,
         gpu=False,

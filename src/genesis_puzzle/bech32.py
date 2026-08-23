@@ -60,7 +60,7 @@ def bech32_encode(hrp: str, data: Sequence[int]) -> str:
 
 def encode_segwit_address(hrp: str, witver: int, witprog: bytes) -> str:
     if witver != 0:
-        raise Bech32Error("Milestone 1 encodes witness version 0 only")
+        raise Bech32Error("this researcher encodes witness version 0 only")
     data = [witver] + convertbits(list(witprog), 8, 5, pad=True)
     return bech32_encode(hrp, data)
 

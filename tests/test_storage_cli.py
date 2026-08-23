@@ -64,6 +64,14 @@ def test_cli_smoke_init_candidates_run_status_report_benchmark(isolated, repo_ro
     assert "P2WSH" in report
     assert "<compressed pubkey> OP_CHECKSIG" in report
     assert "chain-history state: not checked" in report
+    assert "Stage A derivations: 23" in report
+    assert "Stage A unique valid keys: 22" in report
+    assert "No Stage B run is stored" in report
+    assert "tested witness candidates: 630" not in report
+    assert "Next highest-value Stage B experiment (not executed)" in report
+    assert "run --stage B" in report
+    assert "Next highest-value Stage C experiment (not executed)" not in report
+    assert "Stage B, brute force" not in report
     assert digest not in report
 
     bench = _cli(isolated, repo_root, ["benchmark"])

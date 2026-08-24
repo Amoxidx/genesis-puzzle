@@ -1,6 +1,6 @@
-# Genesis Puzzle — Stage A+B+C report
+# Genesis Puzzle — Stage A+B+C+D report
 
-Generated 2026-08-23 17:12:31Z from stored facts and SQLite results. Private candidate
+Generated 2026-08-24 08:46:43Z from stored facts and SQLite results. Private candidate
 scalars are redacted and are not stored.
 
 ## Puzzle statement
@@ -20,7 +20,7 @@ scalar or as SHA256 of that field, produces a standard Bitcoin address or a
 generic single-key P2WSH program that can be compared against a later suspected
 puzzle output.
 
-This is not a general private-key cracking framework. Deterministic Stages A, B, and C are implemented. Stage D, brute force, PBKDF2/BIP39, Metal, transaction creation, wallet import, spending, and broadcasting are out of scope.
+This is not a general private-key cracking framework. Deterministic Stages A, B, C, and D are implemented. Stage E, brute force, PBKDF2/BIP39, Metal, transaction creation, wallet import, spending, and broadcasting are out of scope.
 
 ## Known public facts
 
@@ -56,7 +56,7 @@ proofs that must hold after parse:
 3. The one-transaction Merkle root equals the header Merkle root.
 4. Headline and uncompressed pubkey match the canonical document.
 
-`init` re-runs these proofs before any Stage A, Stage B, or Stage C derivation.
+`init` re-runs these proofs before any Stage A, Stage B, Stage C, or Stage D derivation.
 
 ## Hypotheses tested in Stage A
 
@@ -253,6 +253,100 @@ Zero stored Stage C witness candidates equal the suspected 32-byte witness progr
 All 84 public Stage C candidate scripts, programs, addresses, and provenance are stored in SQLite alongside the preserved Stage B rows. Scalar material is not stored. This Markdown report does not dump those rows.
 
 
+## Hypotheses tested in Stage D
+
+Stage D is the implemented bounded direct integer-scalar neighborhood of the
+actual Genesis nonce (`2083236893`) and timestamp (`1231006505`).
+Canonical direct nonce and timestamp values were already Stage A, so offset
+zero is excluded. Offsets are ±1..±10. Priority is distance-first: for each
+distance d from 1 to 10, nonce-d, nonce+d, timestamp-d, timestamp+d. No hashing.
+
+Each of those 40 recipes is the identity integer
+`k = uint(field=public_value) + (signed_offset)`. public_input bytes stay
+empty. The raw scalar is not stored or logged. The formula, signed offset,
+and fingerprint are sufficient to recompute the same public key.
+
+Exact order:
+
+1. `k = uint(nonce=2083236893) + (-1)`
+2. `k = uint(nonce=2083236893) + (+1)`
+3. `k = uint(timestamp=1231006505) + (-1)`
+4. `k = uint(timestamp=1231006505) + (+1)`
+5. `k = uint(nonce=2083236893) + (-2)`
+6. `k = uint(nonce=2083236893) + (+2)`
+7. `k = uint(timestamp=1231006505) + (-2)`
+8. `k = uint(timestamp=1231006505) + (+2)`
+9. `k = uint(nonce=2083236893) + (-3)`
+10. `k = uint(nonce=2083236893) + (+3)`
+11. `k = uint(timestamp=1231006505) + (-3)`
+12. `k = uint(timestamp=1231006505) + (+3)`
+13. `k = uint(nonce=2083236893) + (-4)`
+14. `k = uint(nonce=2083236893) + (+4)`
+15. `k = uint(timestamp=1231006505) + (-4)`
+16. `k = uint(timestamp=1231006505) + (+4)`
+17. `k = uint(nonce=2083236893) + (-5)`
+18. `k = uint(nonce=2083236893) + (+5)`
+19. `k = uint(timestamp=1231006505) + (-5)`
+20. `k = uint(timestamp=1231006505) + (+5)`
+21. `k = uint(nonce=2083236893) + (-6)`
+22. `k = uint(nonce=2083236893) + (+6)`
+23. `k = uint(timestamp=1231006505) + (-6)`
+24. `k = uint(timestamp=1231006505) + (+6)`
+25. `k = uint(nonce=2083236893) + (-7)`
+26. `k = uint(nonce=2083236893) + (+7)`
+27. `k = uint(timestamp=1231006505) + (-7)`
+28. `k = uint(timestamp=1231006505) + (+7)`
+29. `k = uint(nonce=2083236893) + (-8)`
+30. `k = uint(nonce=2083236893) + (+8)`
+31. `k = uint(timestamp=1231006505) + (-8)`
+32. `k = uint(timestamp=1231006505) + (+8)`
+33. `k = uint(nonce=2083236893) + (-9)`
+34. `k = uint(nonce=2083236893) + (+9)`
+35. `k = uint(timestamp=1231006505) + (-9)`
+36. `k = uint(timestamp=1231006505) + (+9)`
+37. `k = uint(nonce=2083236893) + (-10)`
+38. `k = uint(nonce=2083236893) + (+10)`
+39. `k = uint(timestamp=1231006505) + (-10)`
+40. `k = uint(timestamp=1231006505) + (+10)`
+
+The same six P2WSH templates are applied. No extra fields, dates, combinations,
+PBKDF2/BIP39, or brute force.
+
+## Stage D results
+
+Stage D run:
+- status: ok
+- mode: balanced
+- elapsed_seconds: 0.008176499977707863
+- rate_per_second: 4892.06874690328
+- checkpoint: checkpoint-not-needed
+
+- Stage D derivations: 40
+- Stage D invalid derivations: 0
+- Stage D new unique valid keys: 40
+- cumulative unique valid keys after A+B+C+D: 159
+- cumulative duplicate provenance paths after A+B+C+D: 21
+- new Stage D witness candidates: 240
+- cumulative B+C+D witness candidates: 954
+- P2WSH direct target matches: 0
+
+Witness templates in actual priority (Stage D keys only; six templates times
+40 keys):
+
+- priority 1: `p2pk_compressed` (compressed; modern canonical / descriptor-compatible); tested 40
+- priority 2: `p2pk_uncompressed` (uncompressed; lower-priority historical/manual possibility, not standard descriptor-compatible); tested 40
+- priority 3: `multisig_1of1_compressed` (compressed; modern canonical / descriptor-compatible); tested 40
+- priority 4: `multisig_1of1_uncompressed` (uncompressed; lower-priority historical/manual possibility, not standard descriptor-compatible); tested 40
+- priority 5: `p2pkh_compressed` (compressed; modern canonical / descriptor-compatible); tested 40
+- priority 6: `p2pkh_uncompressed` (uncompressed; lower-priority historical/manual possibility, not standard descriptor-compatible); tested 40
+
+The 240 new Stage D scripts are 40 unique Stage D keys times 6 templates. The full combined A+B+C+D set is 954 scripts (159 cumulative unique keys times 6 templates). The executed Stage B run still tested 630 first_tested_stage=B rows; those 630 are preserved and are not replaced. The executed Stage C run still tested 84 first_tested_stage=C rows; those 84 are preserved and are not replaced. The executed Stage D run tested 240 first_tested_stage=D rows. Combined B+C remains 714. Combined B+C+D is 954; it is not an extra 240 on top of 954.
+
+Zero stored Stage D witness candidates equal the suspected 32-byte witness program or its native P2WSH address. That does not disprove the puzzle. The announcement target remains `suspected_not_proven`.
+
+All 240 public Stage D candidate scripts, programs, addresses, and provenance are stored in SQLite alongside the preserved Stage B and Stage C rows. Scalar material is not stored. public_input bytes stay empty. The raw scalar is not stored or logged. Formula, signed offset, and fingerprint are sufficient to recompute. This Markdown report does not dump those rows.
+
+
 ### Derivations
 
 - `A-01` [valid] Interpret the public Genesis header nonce as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.55)
@@ -397,6 +491,46 @@ All 84 public Stage C candidate scripts, programs, addresses, and provenance are
 - `C-012` [valid] SHA256 of the ASCII decimal timestamp followed by ASCII space " " followed by the ASCII decimal nonce. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.125)
 - `C-013` [valid] SHA256 of the ASCII decimal nonce followed by ASCII newline "\n" followed by the ASCII decimal timestamp. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.12)
 - `C-014` [valid] SHA256 of the ASCII decimal timestamp followed by ASCII newline "\n" followed by the ASCII decimal nonce. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.115)
+- `D-001` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset -1 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.25)
+- `D-002` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset +1 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.248)
+- `D-003` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset -1 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.246)
+- `D-004` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset +1 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.244)
+- `D-005` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset -2 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.242)
+- `D-006` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset +2 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.24)
+- `D-007` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset -2 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.238)
+- `D-008` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset +2 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.236)
+- `D-009` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset -3 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.234)
+- `D-010` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset +3 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.232)
+- `D-011` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset -3 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.23)
+- `D-012` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset +3 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.228)
+- `D-013` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset -4 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.226)
+- `D-014` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset +4 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.224)
+- `D-015` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset -4 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.222)
+- `D-016` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset +4 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.22)
+- `D-017` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset -5 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.218)
+- `D-018` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset +5 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.216)
+- `D-019` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset -5 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.214)
+- `D-020` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset +5 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.212)
+- `D-021` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset -6 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.21)
+- `D-022` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset +6 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.208)
+- `D-023` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset -6 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.206)
+- `D-024` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset +6 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.204)
+- `D-025` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset -7 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.202)
+- `D-026` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset +7 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.2)
+- `D-027` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset -7 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.198)
+- `D-028` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset +7 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.196)
+- `D-029` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset -8 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.194)
+- `D-030` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset +8 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.192)
+- `D-031` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset -8 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.19)
+- `D-032` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset +8 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.188)
+- `D-033` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset -9 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.186)
+- `D-034` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset +9 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.184)
+- `D-035` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset -9 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.182)
+- `D-036` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset +9 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.18)
+- `D-037` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset -10 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.178)
+- `D-038` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset +10 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.176)
+- `D-039` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset -10 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.174)
+- `D-040` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset +10 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.172)
 
 ### Eliminated hypotheses
 
@@ -405,30 +539,37 @@ All 84 public Stage C candidate scripts, programs, addresses, and provenance are
 
 ### Remaining hypotheses
 
-140 stored valid derivation ids remain open as public-key hypotheses, not as matches. They are listed once under Derivations. Stage A P2PKH/P2WPKH addresses still do not test the P2WSH program. The six generic single-key P2WSH templates did not match the target on the preserved Stage B set or the 14 new Stage C keys. Other scripts, encodings, and neighborhoods remain untested.
+180 stored valid derivation ids remain open as public-key hypotheses, not as matches. They are listed once under Derivations. Stage A P2PKH/P2WPKH addresses still do not test the P2WSH program. The six generic single-key P2WSH templates did not match the target on the preserved Stage B set, the 14 new Stage C keys, or the 40 new Stage D keys. Other scripts and encodings remain untested.
 
-A miss of these six templates on the executed Stage C keys is not a proof that no puzzle exists. Remaining open work is other scripts, other encodings, and the bounded Stage D experiment below.
+A miss of these six templates on the executed Stage D keys is not a proof that no puzzle exists. Remaining open work is other scripts, other encodings, and the bounded Stage E experiment below.
 
-## Next highest-value Stage D experiment (not executed)
+## Next highest-value Stage E experiment (not executed)
 
-Hypothesis, not a claim: after the executed Stage A+B+C set, the single
-highest-value next experiment is a *bounded direct-scalar neighborhood* of
-the actual nonce (`2083236893`) and timestamp (`1231006505`).
-Use integer offsets -10..-1 and +1..+10, excluding zero: twenty nonce
-offsets and twenty timestamp offsets, 40 keys. Apply the same six P2WSH
-templates, at most 240 scripts.
+Hypothesis, not a claim: after the executed Stage A+B+C+D set, the single
+highest-value next experiment is SHA256 once over exactly these eight UTF-8
+date/time strings, in this order:
 
-Do not hash. Do not form combinations. Do not add dates. Do not enlarge
-the window. Do not use PBKDF2, BIP39, GPU, or brute force. Do not
-execute Stage D here.
+1. `2009-01-03T18:15:05Z`
+2. `2009-01-03 18:15:05 UTC`
+3. `2009-01-03`
+4. `03/Jan/2009`
+5. `03/01/2009` (European/day-first ambiguous)
+6. `01/03/2009` (American/month-first ambiguous)
+7. `03Jan2009`
+8. `20090103`
+
+Eight candidate keys, at most 48 scripts. Do not add
+newline, case, or whitespace variants. Do not add alternate time zones or
+other dates. Do not use PBKDF2, BIP39, repeated hashing, GPU, neighborhoods,
+larger combinations, or brute force. Do not execute Stage E here.
 
 ## Resource and safety notes
 
-- Balanced mode is the default. Stage A, Stage B, and Stage C are sequential.
+- Balanced mode is the default. Stage A, Stage B, Stage C, and Stage D are sequential.
 - Pause/resume/checkpointing are future bounded-search features and are not
   needed here (`checkpoint-not-needed`).
 - GPU is disabled. No temperature is measured.
-- Offline is the default. Stage B and Stage C never query chain history. Remote history checks are explicit, batched, and send derived public addresses only.
+- Offline is the default. Stage B, Stage C, and Stage D never query chain history. Remote history checks are explicit, batched, and send derived public addresses only.
 - Do not paste candidate scalars into a wallet. This tool will not import
   keys, build transactions, or broadcast.
 

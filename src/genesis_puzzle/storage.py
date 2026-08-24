@@ -5,9 +5,30 @@ import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Sequence
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence
 
-SCHEMA = """
+_WITNESS_CANDIDATES_BODY = """
+    id INTEGER PRIMARY KEY,
+    fingerprint TEXT NOT NULL REFERENCES keys(fingerprint),
+    target_id TEXT NOT NULL,
+    template_id TEXT NOT NULL,
+    template_name TEXT NOT NULL,
+    priority INTEGER NOT NULL,
+    pubkey_mode TEXT NOT NULL,
+    pubkey_hex TEXT NOT NULL,
+    witness_script_hex TEXT NOT NULL,
+    witness_program_hex TEXT NOT NULL,
+    address TEXT NOT NULL,
+    derivation_ids TEXT NOT NULL,
+    matched INTEGER NOT NULL,
+    run_id INTEGER NOT NULL REFERENCES runs(id),
+    first_tested_stage TEXT NOT NULL DEFAULT 'B'
+        CHECK (first_tested_stage IN ('B', 'C', 'D')),
+    UNIQUE(fingerprint, target_id, template_id)
+"""
+
+SCHEMA = (
+    """
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS runs (
@@ -89,27 +110,33 @@ CREATE TABLE IF NOT EXISTS target_comparisons (
 );
 
 CREATE TABLE IF NOT EXISTS witness_candidates (
-    id INTEGER PRIMARY KEY,
-    fingerprint TEXT NOT NULL REFERENCES keys(fingerprint),
-    target_id TEXT NOT NULL,
-    template_id TEXT NOT NULL,
-    template_name TEXT NOT NULL,
-    priority INTEGER NOT NULL,
-    pubkey_mode TEXT NOT NULL,
-    pubkey_hex TEXT NOT NULL,
-    witness_script_hex TEXT NOT NULL,
-    witness_program_hex TEXT NOT NULL,
-    address TEXT NOT NULL,
-    derivation_ids TEXT NOT NULL,
-    matched INTEGER NOT NULL,
-    run_id INTEGER NOT NULL REFERENCES runs(id),
-    first_tested_stage TEXT NOT NULL DEFAULT 'B'
-        CHECK (first_tested_stage IN ('B', 'C')),
-    UNIQUE(fingerprint, target_id, template_id)
+"""
+    + _WITNESS_CANDIDATES_BODY
+    + """
 );
 """
+)
 
-ALLOWED_WITNESS_STAGES = frozenset({"B", "C"})
+ALLOWED_WITNESS_STAGES = frozenset({"B", "C", "D"})
+_WITNESS_BCD_CHECK = "CHECK (first_tested_stage IN ('B', 'C', 'D'))"
+_WITNESS_PUBLIC_COLUMNS = (
+    "id",
+    "fingerprint",
+    "target_id",
+    "template_id",
+    "template_name",
+    "priority",
+    "pubkey_mode",
+    "pubkey_hex",
+    "witness_script_hex",
+    "witness_program_hex",
+    "address",
+    "derivation_ids",
+    "matched",
+    "run_id",
+    "first_tested_stage",
+)
+_WITNESS_MIGRATE_TEMP = "witness_candidates__migrate_bcd"
 
 
 def restrict_owner_only(path: Path) -> None:
@@ -159,30 +186,66 @@ def connect(path: Path) -> Store:
 
 def validate_first_tested_stage(stage: str) -> str:
     if stage not in ALLOWED_WITNESS_STAGES:
-        raise ValueError(f"first_tested_stage must be 'B' or 'C', got {stage!r}")
+        raise ValueError(f"first_tested_stage must be 'B', 'C', or 'D', got {stage!r}")
     return stage
+
+
+def _normalized_witness_table_sql(conn: sqlite3.Connection) -> Optional[str]:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='witness_candidates'"
+    ).fetchone()
+    if row is None or row[0] is None:
+        return None
+    return " ".join(str(row[0]).split())
+
+
+def _run_savepoint(conn: sqlite3.Connection, name: str, callback: Callable[[], None]) -> None:
+    conn.execute(f"SAVEPOINT {name}")
+    try:
+        callback()
+        conn.execute(f"RELEASE SAVEPOINT {name}")
+    except Exception:
+        conn.execute(f"ROLLBACK TO SAVEPOINT {name}")
+        conn.execute(f"RELEASE SAVEPOINT {name}")
+        raise
+
+
+def _rebuild_witness_candidates_bcd(conn: sqlite3.Connection) -> None:
+    def rebuild() -> None:
+        conn.execute(f"DROP TABLE IF EXISTS {_WITNESS_MIGRATE_TEMP}")
+        conn.execute(f"CREATE TABLE {_WITNESS_MIGRATE_TEMP} ({_WITNESS_CANDIDATES_BODY})")
+        columns = ", ".join(_WITNESS_PUBLIC_COLUMNS)
+        conn.execute(
+            f"INSERT INTO {_WITNESS_MIGRATE_TEMP} ({columns}) "
+            f"SELECT {columns} FROM witness_candidates"
+        )
+        conn.execute("DROP TABLE witness_candidates")
+        conn.execute(f"ALTER TABLE {_WITNESS_MIGRATE_TEMP} RENAME TO witness_candidates")
+
+    _run_savepoint(conn, "migrate_witness_bcd_rebuild", rebuild)
 
 
 def _migrate_witness_candidates_first_tested_stage(conn: sqlite3.Connection) -> None:
     existing_columns = {
         str(row[1]) for row in conn.execute("PRAGMA table_info(witness_candidates)").fetchall()
     }
-    if "first_tested_stage" in existing_columns:
+    if "first_tested_stage" not in existing_columns:
+
+        def add_column() -> None:
+            conn.execute(
+                """
+                ALTER TABLE witness_candidates
+                ADD COLUMN first_tested_stage TEXT NOT NULL DEFAULT 'B'
+                CHECK (first_tested_stage IN ('B', 'C', 'D'))
+                """
+            )
+
+        _run_savepoint(conn, "migrate_witness_first_tested_stage", add_column)
         return
-    conn.execute("SAVEPOINT migrate_witness_first_tested_stage")
-    try:
-        conn.execute(
-            """
-            ALTER TABLE witness_candidates
-            ADD COLUMN first_tested_stage TEXT NOT NULL DEFAULT 'B'
-            CHECK (first_tested_stage IN ('B', 'C'))
-            """
-        )
-        conn.execute("RELEASE SAVEPOINT migrate_witness_first_tested_stage")
-    except Exception:
-        conn.execute("ROLLBACK TO SAVEPOINT migrate_witness_first_tested_stage")
-        conn.execute("RELEASE SAVEPOINT migrate_witness_first_tested_stage")
-        raise
+    table_sql = _normalized_witness_table_sql(conn)
+    if table_sql is not None and _WITNESS_BCD_CHECK in table_sql:
+        return
+    _rebuild_witness_candidates_bcd(conn)
 
 
 @contextmanager
@@ -527,10 +590,47 @@ def replace_stage_c_witness_candidates(
         upsert_witness_candidate(conn, **row)
 
 
-def invalidate_stage_c_current_state(conn: sqlite3.Connection) -> None:
-    """Drop current Stage C witness/derivations and orphan keys. Caller owns the transaction."""
-    conn.execute("DELETE FROM witness_candidates WHERE first_tested_stage = 'C'")
-    conn.execute("DELETE FROM derivations WHERE stage = 'C'")
+def replace_stage_d_witness_candidates(
+    conn: sqlite3.Connection,
+    target_ids: Sequence[str],
+    rows: Sequence[Dict[str, Any]],
+) -> None:
+    """Replace Stage D rows for targets only. Preserve B/C rows. Call inside a transaction."""
+    for row in rows:
+        if row.get("first_tested_stage") != "D":
+            raise ValueError(
+                "Stage D replacement requires first_tested_stage='D' on every payload row"
+            )
+        existing_preserved = conn.execute(
+            """
+            SELECT 1 FROM witness_candidates
+            WHERE first_tested_stage IN ('B', 'C')
+              AND fingerprint = ?
+              AND target_id = ?
+              AND template_id = ?
+            """,
+            (row["fingerprint"], row["target_id"], row["template_id"]),
+        ).fetchone()
+        if existing_preserved is not None:
+            raise ValueError(
+                "Stage D replacement would collide with an existing B or C row for "
+                f"fingerprint={row['fingerprint']!r} target_id={row['target_id']!r} "
+                f"template_id={row['template_id']!r}"
+            )
+    if target_ids:
+        placeholders = ",".join("?" for _ in target_ids)
+        conn.execute(
+            f"""
+            DELETE FROM witness_candidates
+            WHERE first_tested_stage = 'D' AND target_id IN ({placeholders})
+            """,
+            tuple(target_ids),
+        )
+    for row in rows:
+        upsert_witness_candidate(conn, **row)
+
+
+def _delete_unreferenced_keys(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
         DELETE FROM keys
@@ -545,6 +645,23 @@ def invalidate_stage_c_current_state(conn: sqlite3.Connection) -> None:
         )
         """
     )
+
+
+def invalidate_stage_c_current_state(conn: sqlite3.Connection) -> None:
+    """Drop current Stage C and downstream D witness/derivations and orphan keys.
+
+    This is the rollback-to-B operation. Caller owns the transaction.
+    """
+    conn.execute("DELETE FROM witness_candidates WHERE first_tested_stage IN ('C', 'D')")
+    conn.execute("DELETE FROM derivations WHERE stage IN ('C', 'D')")
+    _delete_unreferenced_keys(conn)
+
+
+def invalidate_stage_d_current_state(conn: sqlite3.Connection) -> None:
+    """Drop current Stage D witness/derivations and orphan keys. Caller owns the transaction."""
+    conn.execute("DELETE FROM witness_candidates WHERE first_tested_stage = 'D'")
+    conn.execute("DELETE FROM derivations WHERE stage = 'D'")
+    _delete_unreferenced_keys(conn)
 
 
 def latest_run(conn: sqlite3.Connection) -> Optional[sqlite3.Row]:

@@ -23,6 +23,7 @@ from genesis_puzzle.engine import (
     run_stage_a,
     run_stage_b,
     run_stage_c,
+    run_stage_d,
 )
 from genesis_puzzle.model import KnownTarget
 from genesis_puzzle.parser import ParsedBlock
@@ -207,7 +208,7 @@ def test_stage_c_real_target_counts_ordering_and_idempotent_rerun(
     output = io.StringIO()
     derive_calls = _count_engine_derive_pubkeys(monkeypatch)
     result = run_stage_c(store, genesis_block, targets, MODE, out=output)
-    assert derive_calls["n"] == 14
+    assert derive_calls["n"] == 119
     text = output.getvalue()
     run = latest_run(store.conn)
     after = counts(store.conn)
@@ -276,7 +277,7 @@ def test_stage_c_real_target_counts_ordering_and_idempotent_rerun(
     derive_calls["n"] = 0
     output2 = io.StringIO()
     result2 = run_stage_c(store, genesis_block, targets, MODE, out=output2)
-    assert derive_calls["n"] == 14
+    assert derive_calls["n"] == 119
     assert result2["new_unique_keys"] == 14
     assert result2["witness_candidates_tested"] == 84
     assert result2["cumulative_witness_candidates"] == 714
@@ -390,7 +391,7 @@ def test_first_synthetic_c_candidate_match_stops_after_one(isolated, genesis_blo
     output = io.StringIO()
     derive_calls = _count_engine_derive_pubkeys(monkeypatch)
     result = run_stage_c(store, genesis_block, [target], MODE, out=output)
-    assert derive_calls["n"] == 1
+    assert derive_calls["n"] == 106
     text = output.getvalue()
     c_rows = list_witness_candidates(store.conn, "C")
     run = latest_run(store.conn)
@@ -488,6 +489,56 @@ def test_stage_b_rerun_invalidates_stage_c_down_to_b_state(
     _assert_public_schema(store)
 
 
+def test_stage_c_rerun_invalidates_stage_d_down_to_c_state(isolated, genesis_block, targets):
+    store = _prepare_ab(isolated, genesis_block, targets)
+    run_stage_c(store, genesis_block, targets, MODE)
+    run_stage_d(store, genesis_block, targets, MODE)
+    assert counts(store.conn)["unique_keys"] == 159
+    assert counts(store.conn)["witness_candidates"] == 954
+    assert list_witness_candidates(store.conn, "D")
+    d_runs = store.conn.execute("SELECT COUNT(*) FROM runs WHERE stage = 'D'").fetchone()[0]
+    assert d_runs == 1
+    b_snapshot = [
+        _witness_public_snapshot(row) for row in list_witness_candidates(store.conn, "B")
+    ]
+    result = run_stage_c(store, genesis_block, targets, MODE)
+    assert result["new_unique_keys"] == 14
+    assert result["unique_valid_keys"] == 119
+    assert result["cumulative_witness_candidates"] == 714
+    after = counts(store.conn)
+    assert after["unique_keys"] == 119
+    assert after["witness_candidates"] == 714
+    assert after["witness_matches"] == 0
+    assert list_witness_candidates(store.conn, "D") == []
+    assert (
+        store.conn.execute("SELECT COUNT(*) FROM derivations WHERE stage = 'D'").fetchone()[0] == 0
+    )
+    assert (
+        store.conn.execute("SELECT COUNT(*) FROM derivations WHERE stage = 'C'").fetchone()[0]
+        == 14
+    )
+    assert store.conn.execute("SELECT COUNT(*) FROM runs WHERE stage = 'D'").fetchone()[0] == (
+        d_runs
+    )
+    assert [_witness_public_snapshot(row) for row in list_witness_candidates(store.conn, "B")] == (
+        b_snapshot
+    )
+    assert len(list_witness_candidates(store.conn, "C")) == 84
+    abc_fps = {
+        str(row[0])
+        for row in store.conn.execute(
+            "SELECT DISTINCT fingerprint FROM derivations WHERE stage IN ('A', 'B', 'C') "
+            "AND fingerprint IS NOT NULL"
+        )
+    }
+    key_fps = {
+        str(row[0]) for row in store.conn.execute("SELECT fingerprint FROM keys").fetchall()
+    }
+    assert key_fps == abc_fps
+    assert len(key_fps) == 119
+    _assert_public_schema(store)
+
+
 def _argv(isolated: Path, repo_root: Path, argv: list[str]) -> list[str]:
     return [
         "--root",
@@ -521,7 +572,7 @@ def test_cli_parser_exposes_stage_c_choices_and_help():
     run = parser.parse_args(["run", "--stage", "C", "--mode", "balanced"])
     assert run.stage == "C"
     with pytest.raises(SystemExit):
-        parser.parse_args(["run", "--stage", "D"])
+        parser.parse_args(["run", "--stage", "E"])
 
 
 def test_cli_stage_c_preview_lists_recipes_and_templates(isolated, repo_root, genesis_block):
@@ -627,6 +678,93 @@ def test_stage_c_rejects_target_id_mismatch_without_curve_or_mutation(
     other = replace(targets[0], id="synthetic-other-p2wsh")
     with pytest.raises(StageCPrerequisiteError, match="current validated P2WSH target ID"):
         run_stage_c(store, genesis_block, [other], MODE)
+    assert derive_calls["n"] == 0
+    _assert_no_stage_c(store, before)
+
+
+def _swap_stored_pubkey_with_self_consistent_script(store: Store, stage: str) -> None:
+    rows = [
+        row
+        for row in list_witness_candidates(store.conn, stage)
+        if str(row["template_id"]) == "p2pk_compressed"
+    ]
+    donor = rows[0]
+    victim = next(
+        row
+        for row in rows
+        if str(row["fingerprint"]) != str(donor["fingerprint"])
+        and str(row["pubkey_hex"]) != str(donor["pubkey_hex"])
+    )
+    template = next(
+        item for item in WITNESS_TEMPLATES if item.template_id == victim["template_id"]
+    )
+    swapped_pubkey = bytes.fromhex(str(donor["pubkey_hex"]))
+    script = expected_witness_script(template, swapped_pubkey)
+    program, address = p2wsh_program_and_address(script)
+    store.conn.execute(
+        """
+        UPDATE witness_candidates
+        SET pubkey_hex = ?, witness_script_hex = ?, witness_program_hex = ?, address = ?
+        WHERE id = ?
+        """,
+        (swapped_pubkey.hex(), script.hex(), program.hex(), address, victim["id"]),
+    )
+    store.conn.commit()
+    stored = store.conn.execute(
+        "SELECT pubkey_hex, witness_script_hex, witness_program_hex, address "
+        "FROM witness_candidates WHERE id = ?",
+        (victim["id"],),
+    ).fetchone()
+    assert stored["pubkey_hex"] == swapped_pubkey.hex()
+    assert stored["witness_script_hex"] == script.hex()
+    assert stored["witness_program_hex"] == program.hex()
+    assert stored["address"] == address
+    assert expected_witness_script(template, swapped_pubkey) == script
+
+
+def _current_target_equal_to_stored_row(target: KnownTarget, row) -> KnownTarget:
+    program = bytes.fromhex(str(row["witness_program_hex"]))
+    address = str(row["address"])
+    return replace(
+        target,
+        witness_program_hex=program.hex(),
+        address=address,
+        script_pubkey_hex=(bytes([0x00, 0x20]) + program).hex(),
+    )
+
+
+def test_stage_c_rejects_swapped_b_pubkey_with_self_consistent_script(
+    isolated, genesis_block, targets, monkeypatch
+):
+    store = _prepare_ab(isolated, genesis_block, targets)
+    _swap_stored_pubkey_with_self_consistent_script(store, "B")
+    mutated = _state_snapshot(store)
+    derive_calls = _count_engine_derive_pubkeys(monkeypatch)
+    with pytest.raises(StageCPrerequisiteError, match="recomputed scalar"):
+        run_stage_c(store, genesis_block, targets, MODE)
+    assert derive_calls["n"] >= 1
+    _assert_no_stage_c(store, mutated)
+
+
+def test_stage_c_rejects_lying_unmatched_b_row_that_equals_current_target(
+    isolated, genesis_block, targets, monkeypatch
+):
+    store = _prepare_ab(isolated, genesis_block, targets)
+    b_row = list_witness_candidates(store.conn, "B")[0]
+    assert int(b_row["matched"]) == 0
+    lying_target = _current_target_equal_to_stored_row(targets[0], b_row)
+    assert str(lying_target.id) == str(targets[0].id)
+    assert lying_target.witness_program_hex == str(b_row["witness_program_hex"])
+    assert lying_target.address == str(b_row["address"])
+    before = _state_snapshot(store)
+    derive_calls = _count_engine_derive_pubkeys(monkeypatch)
+
+    def boom_recipes(_block):
+        raise AssertionError("Stage C recipes must not run on a lying unmatched B match")
+
+    monkeypatch.setattr(engine_mod, "stage_c_recipes", boom_recipes)
+    with pytest.raises(StageCPrerequisiteError, match="equal the current target"):
+        run_stage_c(store, genesis_block, [lying_target], MODE)
     assert derive_calls["n"] == 0
     _assert_no_stage_c(store, before)
 

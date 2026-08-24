@@ -543,6 +543,8 @@ def test_rebuild_bcde_rename_failure_rolls_back_original_bcd_table(isolated):
             storage_mod._rebuild_witness_candidates_bcde(raw)
     finally:
         raw.set_authorizer(None)
+        raw.close()
+    raw = sqlite3.connect(path)
     assert any(
         action == sqlite3.SQLITE_DROP_TABLE and arg1 == "witness_candidates"
         for action, arg1, _arg2 in seen

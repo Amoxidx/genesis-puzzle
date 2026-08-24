@@ -883,10 +883,12 @@ def test_cli_parser_exposes_stage_d_choices_and_help():
     assert candidates.stage == "D"
     run = parser.parse_args(["run", "--stage", "D", "--mode", "balanced"])
     assert run.stage == "D"
+    assert parser.parse_args(["candidates", "--stage", "E"]).stage == "E"
+    assert parser.parse_args(["run", "--stage", "E", "--mode", "balanced"]).stage == "E"
     with pytest.raises(SystemExit):
-        parser.parse_args(["run", "--stage", "E"])
+        parser.parse_args(["run", "--stage", "F"])
     with pytest.raises(SystemExit):
-        parser.parse_args(["candidates", "--stage", "E"])
+        parser.parse_args(["candidates", "--stage", "F"])
 
 
 def test_cli_stage_d_preview_lists_recipes_and_templates(isolated, repo_root, genesis_block):
@@ -1001,7 +1003,9 @@ def test_cli_stage_a_b_c_d_run_summary_status_report_and_redaction(
     assert "new Stage D witness candidates: 240" in report
     assert "cumulative B+C+D witness candidates: 954" in report
     assert "Next highest-value Stage E experiment (not executed)" in report
-    assert "Do not execute Stage E here" in report
+    assert "run --stage E" in report
+    assert "Do not execute Stage E here" not in report
+    assert "Do not execute Stage F" in report
     assert "Next highest-value Stage D experiment (not executed)" not in report
     dumped = dump_text(connect(isolated / "state" / "research.sqlite").conn)
     combined = out_d + status + report + dumped

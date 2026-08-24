@@ -1,6 +1,6 @@
-# Genesis Puzzle — Stage A+B+C+D report
+# Genesis Puzzle — Stage A+B+C+D+E report
 
-Generated 2026-08-24 08:46:43Z from stored facts and SQLite results. Private candidate
+Generated 2026-08-24 14:26:15Z from stored facts and SQLite results. Private candidate
 scalars are redacted and are not stored.
 
 ## Puzzle statement
@@ -20,7 +20,7 @@ scalar or as SHA256 of that field, produces a standard Bitcoin address or a
 generic single-key P2WSH program that can be compared against a later suspected
 puzzle output.
 
-This is not a general private-key cracking framework. Deterministic Stages A, B, C, and D are implemented. Stage E, brute force, PBKDF2/BIP39, Metal, transaction creation, wallet import, spending, and broadcasting are out of scope.
+This is not a general private-key cracking framework. Deterministic Stages A, B, C, D, and E are implemented. Stage F, brute force, PBKDF2/BIP39, Metal, transaction creation, wallet import, spending, and broadcasting are out of scope.
 
 ## Known public facts
 
@@ -56,7 +56,7 @@ proofs that must hold after parse:
 3. The one-transaction Merkle root equals the header Merkle root.
 4. Headline and uncompressed pubkey match the canonical document.
 
-`init` re-runs these proofs before any Stage A, Stage B, Stage C, or Stage D derivation.
+`init` re-runs these proofs before any Stage A, Stage B, Stage C, Stage D, or Stage E derivation.
 
 ## Hypotheses tested in Stage A
 
@@ -317,8 +317,8 @@ PBKDF2/BIP39, or brute force.
 Stage D run:
 - status: ok
 - mode: balanced
-- elapsed_seconds: 0.008176499977707863
-- rate_per_second: 4892.06874690328
+- elapsed_seconds: 0.008673375472426414
+- rate_per_second: 4611.814642080729
 - checkpoint: checkpoint-not-needed
 
 - Stage D derivations: 40
@@ -345,6 +345,60 @@ The 240 new Stage D scripts are 40 unique Stage D keys times 6 templates. The fu
 Zero stored Stage D witness candidates equal the suspected 32-byte witness program or its native P2WSH address. That does not disprove the puzzle. The announcement target remains `suspected_not_proven`.
 
 All 240 public Stage D candidate scripts, programs, addresses, and provenance are stored in SQLite alongside the preserved Stage B and Stage C rows. Scalar material is not stored. public_input bytes stay empty. The raw scalar is not stored or logged. Formula, signed offset, and fingerprint are sufficient to recompute. This Markdown report does not dump those rows.
+
+
+## Hypotheses tested in Stage E
+
+Stage E is the implemented SHA256 once experiment over exactly these eight
+UTF-8 date/time strings, in this order:
+
+1. `2009-01-03T18:15:05Z`
+2. `2009-01-03 18:15:05 UTC`
+3. `2009-01-03`
+4. `03/Jan/2009`
+5. `03/01/2009` (European/day-first ambiguous)
+6. `01/03/2009` (American/month-first ambiguous)
+7. `03Jan2009`
+8. `20090103`
+
+Each of those 8 public strings is SHA256'd once, then the
+same six P2WSH templates are applied. No newline, case, whitespace, timezone,
+or other date variants. No repeated hashing, PBKDF2/BIP39, neighborhoods, or
+brute force.
+
+## Stage E results
+
+Stage E run:
+- status: ok
+- mode: balanced
+- elapsed_seconds: 0.0022911252453923225
+- rate_per_second: 3491.734035967167
+- checkpoint: checkpoint-not-needed
+
+- Stage E derivations: 8
+- Stage E invalid derivations: 0
+- Stage E new unique valid keys: 8
+- cumulative unique valid keys after A+B+C+D+E: 167
+- cumulative duplicate provenance paths after A+B+C+D+E: 21
+- new Stage E witness candidates: 48
+- cumulative B+C+D+E witness candidates: 1002
+- P2WSH direct target matches: 0
+
+Witness templates in actual priority (Stage E keys only; six templates times
+8 keys):
+
+- priority 1: `p2pk_compressed` (compressed; modern canonical / descriptor-compatible); tested 8
+- priority 2: `p2pk_uncompressed` (uncompressed; lower-priority historical/manual possibility, not standard descriptor-compatible); tested 8
+- priority 3: `multisig_1of1_compressed` (compressed; modern canonical / descriptor-compatible); tested 8
+- priority 4: `multisig_1of1_uncompressed` (uncompressed; lower-priority historical/manual possibility, not standard descriptor-compatible); tested 8
+- priority 5: `p2pkh_compressed` (compressed; modern canonical / descriptor-compatible); tested 8
+- priority 6: `p2pkh_uncompressed` (uncompressed; lower-priority historical/manual possibility, not standard descriptor-compatible); tested 8
+
+The 48 new Stage E scripts are 8 unique Stage E keys times 6 templates. The full combined A+B+C+D+E set is 1002 scripts (167 cumulative unique keys times 6 templates). The executed Stage B run still tested 630 first_tested_stage=B rows; those 630 are preserved and are not replaced. The executed Stage C run still tested 84 first_tested_stage=C rows; those 84 are preserved and are not replaced. The executed Stage D run still tested 240 first_tested_stage=D rows; those 240 are preserved and are not replaced. The executed Stage E run tested 48 first_tested_stage=E rows. Combined B+C remains 714. Combined B+C+D remains 954. Combined B+C+D+E is 1002; it is not an extra 48 on top of 1002.
+
+Zero stored Stage E witness candidates equal the suspected 32-byte witness program or its native P2WSH address. That does not disprove the puzzle. The announcement target remains `suspected_not_proven`.
+
+All 48 public Stage E candidate scripts, programs, addresses, and provenance are stored in SQLite alongside the preserved Stage B, Stage C, and Stage D rows. Scalar material is not stored. The raw SHA256 scalar is not stored or logged. Formula, exact UTF-8 date string, and fingerprint are sufficient to recompute. This Markdown report does not dump those rows.
 
 
 ### Derivations
@@ -531,6 +585,14 @@ All 240 public Stage D candidate scripts, programs, addresses, and provenance ar
 - `D-038` [valid] Interpret the public Genesis header nonce 2083236893 plus signed offset +10 as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.176)
 - `D-039` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset -10 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.174)
 - `D-040` [valid] Interpret the public Genesis header timestamp 1231006505 plus signed offset +10 as a secp256k1 scalar. (source `genesis.header.timestamp`, transform `identity_integer`, confidence 0.172)
+- `E-001` [valid] SHA256 of the exact UTF-8 date/time string 2009-01-03T18:15:05Z. (source `genesis.header.timestamp.utf8_date`, transform `sha256`, confidence 0.16)
+- `E-002` [valid] SHA256 of the exact UTF-8 date/time string 2009-01-03 18:15:05 UTC. (source `genesis.header.timestamp.utf8_date`, transform `sha256`, confidence 0.158)
+- `E-003` [valid] SHA256 of the exact UTF-8 date/time string 2009-01-03. (source `genesis.header.timestamp.utf8_date`, transform `sha256`, confidence 0.156)
+- `E-004` [valid] SHA256 of the exact UTF-8 date/time string 03/Jan/2009. (source `genesis.header.timestamp.utf8_date`, transform `sha256`, confidence 0.154)
+- `E-005` [valid] SHA256 of the exact UTF-8 date/time string 03/01/2009 (European/day-first ambiguous). (source `genesis.header.timestamp.utf8_date`, transform `sha256`, confidence 0.152)
+- `E-006` [valid] SHA256 of the exact UTF-8 date/time string 01/03/2009 (American/month-first ambiguous). (source `genesis.header.timestamp.utf8_date`, transform `sha256`, confidence 0.15)
+- `E-007` [valid] SHA256 of the exact UTF-8 date/time string 03Jan2009. (source `genesis.header.timestamp.utf8_date`, transform `sha256`, confidence 0.148)
+- `E-008` [valid] SHA256 of the exact UTF-8 date/time string 20090103. (source `genesis.header.timestamp.utf8_date`, transform `sha256`, confidence 0.146)
 
 ### Eliminated hypotheses
 
@@ -539,37 +601,24 @@ All 240 public Stage D candidate scripts, programs, addresses, and provenance ar
 
 ### Remaining hypotheses
 
-180 stored valid derivation ids remain open as public-key hypotheses, not as matches. They are listed once under Derivations. Stage A P2PKH/P2WPKH addresses still do not test the P2WSH program. The six generic single-key P2WSH templates did not match the target on the preserved Stage B set, the 14 new Stage C keys, or the 40 new Stage D keys. Other scripts and encodings remain untested.
+188 stored valid derivation ids remain open as public-key hypotheses, not as matches. They are listed once under Derivations. Stage A P2PKH/P2WPKH addresses still do not test the P2WSH program. The six generic single-key P2WSH templates did not match the target on the preserved Stage B set, the 14 new Stage C keys, the 40 new Stage D keys, or the 8 new Stage E keys. Other scripts and encodings remain untested.
 
-A miss of these six templates on the executed Stage D keys is not a proof that no puzzle exists. Remaining open work is other scripts, other encodings, and the bounded Stage E experiment below.
+A miss of these six templates on the executed Stage E keys is not a proof that no puzzle exists. Remaining open work is other scripts, other encodings, and the bounded Stage F experiment below.
 
-## Next highest-value Stage E experiment (not executed)
+## Next highest-value Stage F experiment (not executed)
 
-Hypothesis, not a claim: after the executed Stage A+B+C+D set, the single
-highest-value next experiment is SHA256 once over exactly these eight UTF-8
-date/time strings, in this order:
-
-1. `2009-01-03T18:15:05Z`
-2. `2009-01-03 18:15:05 UTC`
-3. `2009-01-03`
-4. `03/Jan/2009`
-5. `03/01/2009` (European/day-first ambiguous)
-6. `01/03/2009` (American/month-first ambiguous)
-7. `03Jan2009`
-8. `20090103`
-
-Eight candidate keys, at most 48 scripts. Do not add
-newline, case, or whitespace variants. Do not add alternate time zones or
-other dates. Do not use PBKDF2, BIP39, repeated hashing, GPU, neighborhoods,
-larger combinations, or brute force. Do not execute Stage E here.
+Hypothesis, not a claim: after the executed Stage A+B+C+D+E set, the single
+highest-value next experiment is an explicit-opt-in bounded low-integer search
+of scalars 1..2^20, benchmark-first. Do not execute Stage F here.
+Do not add GPU, PBKDF2, BIP39, neighborhoods, or brute force.
 
 ## Resource and safety notes
 
-- Balanced mode is the default. Stage A, Stage B, Stage C, and Stage D are sequential.
+- Balanced mode is the default. Stage A, Stage B, Stage C, Stage D, and Stage E are sequential.
 - Pause/resume/checkpointing are future bounded-search features and are not
   needed here (`checkpoint-not-needed`).
 - GPU is disabled. No temperature is measured.
-- Offline is the default. Stage B, Stage C, and Stage D never query chain history. Remote history checks are explicit, batched, and send derived public addresses only.
+- Offline is the default. Stage B, Stage C, Stage D, and Stage E never query chain history. Remote history checks are explicit, batched, and send derived public addresses only.
 - Do not paste candidate scalars into a wallet. This tool will not import
   keys, build transactions, or broadcast.
 

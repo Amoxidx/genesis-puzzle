@@ -1,11 +1,11 @@
 # genesis-puzzle
 
 Local, auditable researcher for a **narrowly scoped** Bitcoin Genesis puzzle.
-This release implements deterministic **Stages A, B, C, and D** as an offline
-sequential pipeline: A then B then C then D.
+This release implements deterministic **Stages A, B, C, D, and E** as an offline
+sequential pipeline: A then B then C then D then E.
 
 This is not a general-purpose address or private-key cracking framework.
-Stage E is proposed, not executed. Brute force, PBKDF2/BIP39, Metal,
+Stage F is proposed, not executed. Brute force, PBKDF2/BIP39, Metal,
 transaction creation, wallet import, spending, and broadcasting remain out of
 scope.
 
@@ -13,20 +13,22 @@ Private candidate scalars are never printed, logged, stored in SQLite, written
 into reports, sent to APIs, copied to the clipboard, or interpolated into a
 shell command. There is no reveal or export command.
 
-Offline is the default. Stage B, Stage C, and Stage D are offline. Stage B
-requires a completed Stage A run. Stage C requires completed Stage A and Stage
-B runs in the same database. Stage D requires completed Stage A, Stage B, and
-Stage C runs in the same database. Remote history checks are explicit
-(`history-check --yes-network`), use blockchain.info's multi-address endpoint,
-and send only derived public addresses. One HTTP request is made per configured
-batch, never one request per address. Stage C and Stage D themselves do not
-look up live chain history.
+Offline is the default. Stage B, Stage C, Stage D, and Stage E are offline.
+Stage B requires a completed Stage A run. Stage C requires completed Stage A
+and Stage B runs in the same database. Stage D requires completed Stage A,
+Stage B, and Stage C runs in the same database. Stage E requires completed
+Stage A, Stage B, Stage C, and Stage D runs in the same database. Remote
+history checks are explicit (`history-check --yes-network`), use
+blockchain.info's multi-address endpoint, and send only derived public
+addresses. One HTTP request is made per configured batch, never one request
+per address. Stage C, Stage D, and Stage E themselves do not look up live
+chain history.
 
 ## Layout
 
 - `data/genesis.json` — canonical public Genesis facts
 - `data/known_targets.json` — public announcement target, labelled `suspected_puzzle_output`
-- `src/genesis_puzzle/` — parser, Stage A/B/C/D generators, P2WSH templates, secp256k1/address primitives, SQLite, CLI
+- `src/genesis_puzzle/` — parser, Stage A/B/C/D/E generators, P2WSH templates, secp256k1/address primitives, SQLite, CLI
 - `tests/` — reference vectors and CLI smoke
 - `research/report.md` — regenerated from stored facts/results
 - `config.toml` — eco / balanced / max resource caps (balanced default, GPU false)
@@ -74,6 +76,8 @@ genesis-puzzle candidates --stage C
 genesis-puzzle run --stage C --mode balanced
 genesis-puzzle candidates --stage D
 genesis-puzzle run --stage D --mode balanced
+genesis-puzzle candidates --stage E
+genesis-puzzle run --stage E --mode balanced
 genesis-puzzle report
 ```
 
@@ -87,7 +91,7 @@ genesis-puzzle history-check --yes-network
 ```
 
 `run --mode` is `eco`, `balanced`, or `max`. Balanced is the default from
-`config.toml`. Stages A, B, C, and D are tiny and sequential in every mode;
+`config.toml`. Stages A, B, C, D, and E are tiny and sequential in every mode;
 extra workers are rejected. Pause, resume, and checkpointing are **future
 bounded-search features** and are not implemented because these deterministic
 stages do not need them. `status` always reports `checkpoint=not-needed`.
@@ -97,20 +101,23 @@ thermal-limit, and checkpoint defaults for future bounded searches. This
 release does not consume those values and does not claim access to macOS
 temperature sensors.
 
-`candidates --stage A`, `--stage B`, `--stage C`, or `--stage D` prints ordered
-recipes and provenance without deriving a private scalar. Stage B, Stage C,
-and Stage D previews also list the six witness templates.
+`candidates --stage A`, `--stage B`, `--stage C`, `--stage D`, or `--stage E`
+prints ordered recipes and provenance without deriving a private scalar.
+Stage B, Stage C, Stage D, and Stage E previews also list the six witness
+templates.
 
 Stage B is offline. It needs a completed Stage A result in the same database.
 Stage C is offline. It needs completed Stage A and Stage B results in the same
 database. Stage D is offline. It needs completed Stage A, Stage B, and Stage C
-results in the same database. None of those stages queries chain history.
-Direct P2WSH comparison is `SHA256(witnessScript)` plus the native address.
+results in the same database. Stage E is offline. It needs completed Stage A,
+Stage B, Stage C, and Stage D results in the same database. None of those
+stages queries chain history. Direct P2WSH comparison is
+`SHA256(witnessScript)` plus the native address.
 
 `history-check` is optional, explicit, and offline unless `--yes-network` is
 passed. It may send only derived public addresses.
 
-There is no `run --stage E` command. Do not execute Stage E.
+There is no `run --stage F` command. Do not execute Stage F.
 
 ## Quality gate
 
@@ -127,10 +134,10 @@ python -m pip install --force-reinstall --no-deps dist/genesis_puzzle-*.whl
 ```
 
 Tests stay laptop-safe and do not start a worker pool. The installed-wheel
-smoke previews Stage D and then executes Stage A, Stage B, Stage C, and Stage D
-sequentially outside the checkout.
+smoke previews Stage E and then executes Stage A, Stage B, Stage C, Stage D,
+and Stage E sequentially outside the checkout.
 
-## Stages A, B, C, and D
+## Stages A, B, C, D, and E
 
 Stage A is deterministic, ordered, and deduplicated by exact private scalar
 (fingerprint stored, scalar discarded). Each unique valid key yields exactly
@@ -182,8 +189,8 @@ Canonical expected and current contract: 40 Stage D recipes, 0 invalid,
 this bounded set does not solve the puzzle, does not disprove it, and is
 not a live chain lookup.
 
-Stage E is not executed. The next proposed Stage E experiment is SHA256 once
-over exactly these eight UTF-8 date/time strings, in this order:
+Stage E is the implemented SHA256 once experiment over exactly these eight
+UTF-8 date/time strings, in this order:
 
 1. `2009-01-03T18:15:05Z`
 2. `2009-01-03 18:15:05 UTC`
@@ -194,10 +201,20 @@ over exactly these eight UTF-8 date/time strings, in this order:
 7. `03Jan2009`
 8. `20090103`
 
-Eight candidate keys, at most 48 scripts. Do not add newline, case, or
-whitespace variants. Do not add alternate time zones or other dates. Do not
-use PBKDF2, BIP39, repeated hashing, GPU, neighborhoods, larger combinations,
-or brute force. Do not execute Stage E.
+Each of those eight public strings is SHA256'd once. Eight candidate keys,
+at most 48 scripts. The raw scalar is never printed or stored. Canonical
+expected and current contract: 8 Stage E recipes, 0 invalid, 8 new unique
+keys, 167 cumulative unique keys after A+B+C+D+E, 21 cumulative duplicate
+provenance paths, 48 new Stage E scripts, 1002 combined B+C+D+E scripts,
+0 direct P2WSH target matches. A no-match on this bounded set does not
+solve the puzzle, does not disprove it, and is not a live chain lookup.
+Do not add newline, case, or whitespace variants. Do not add alternate
+time zones or other dates. Do not use PBKDF2, BIP39, repeated hashing,
+GPU, neighborhoods, larger combinations, or brute force.
+
+Stage F is not executed. The next proposed Stage F experiment is an
+explicit-opt-in bounded low-integer search of scalars 1..2^20,
+benchmark-first. Do not execute Stage F.
 
 ## Safety
 

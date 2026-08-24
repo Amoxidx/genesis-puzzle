@@ -466,8 +466,9 @@ def _assert_complete_no_match_d(report: str) -> None:
     assert "Stage A+B+C+D report" in report
     assert "Stage A+B+C report" not in report
     assert "Stage A+B report" not in report
-    assert "Deterministic Stages A, B, C, and D are implemented" in report
-    assert "Stage E, brute force" in report
+    assert "Deterministic Stages A, B, C, D, and E are implemented" in report
+    assert "Stage F, brute force" in report
+    assert "Stage E, brute force" not in report
     assert "Stage D, brute force" not in report
     assert "Stage C, brute force" not in report
     assert "cumulative unique valid keys after A+B: 105" in report
@@ -502,15 +503,19 @@ def _assert_complete_no_match_d(report: str) -> None:
     assert "SHA256 once over exactly these eight UTF-8" in stage_e
     assert "Eight candidate keys" in stage_e
     assert "at most 48 scripts" in stage_e
-    assert "Do not execute Stage E here" in stage_e
+    assert "run --stage E" in stage_e
+    assert "Do not execute Stage E here" not in stage_e
+    assert "Do not execute Stage F" in stage_e
+    assert "Stage F and later hypotheses remain out of scope" in stage_e
     _assert_no_report_duplication(report)
 
 
 def _assert_complete_no_match_c(report: str) -> None:
     assert "Stage A+B+C report" in report
     assert "Stage A+B report" not in report
-    assert "Deterministic Stages A, B, C, and D are implemented" in report
-    assert "Stage E, brute force" in report
+    assert "Deterministic Stages A, B, C, D, and E are implemented" in report
+    assert "Stage F, brute force" in report
+    assert "Stage E, brute force" not in report
     assert "Stage D, brute force" not in report
     assert "Stage C, brute force" not in report
     assert "cumulative unique valid keys after A+B: 105" in report
@@ -934,7 +939,7 @@ def test_report_complete_no_match_stage_d(facts, targets):
     assert "raw scalar is not stored or logged" in d_section
     assert "formula" in d_section.lower()
     assert "fingerprint" in d_section
-    assert "Stage A, Stage B, Stage C, and Stage D are sequential." in text
+    assert "Stage A, Stage B, Stage C, Stage D, and Stage E are sequential." in text
 
 
 def test_report_stage_d_from_latest_run_without_explicit_kwarg(facts, targets):
@@ -1021,7 +1026,9 @@ def test_report_stage_e_strings_order_count_and_prohibitions(facts, targets):
     assert "neighborhoods" in stage_e
     assert "larger\ncombinations" in stage_e or "larger combinations" in stage_e
     assert "brute force" in stage_e
-    assert "Do not execute Stage E here" in stage_e
+    assert "run --stage E" in stage_e
+    assert "Do not execute Stage E here" not in stage_e
+    assert "Do not execute Stage F" in stage_e
     assert "2009-01-03T18:15:05+00:00" not in stage_e
     assert "03 January 2009" not in stage_e
     assert "PBKDF2/BIP39" not in stage_e.split("Do not use", 1)[-1] or "PBKDF2" in stage_e

@@ -571,8 +571,13 @@ def test_cli_parser_exposes_stage_c_choices_and_help():
     assert candidates.stage == "C"
     run = parser.parse_args(["run", "--stage", "C", "--mode", "balanced"])
     assert run.stage == "C"
+    assert parser.parse_args(["candidates", "--stage", "D"]).stage == "D"
+    assert parser.parse_args(["candidates", "--stage", "E"]).stage == "E"
+    assert parser.parse_args(["run", "--stage", "E", "--mode", "balanced"]).stage == "E"
     with pytest.raises(SystemExit):
-        parser.parse_args(["run", "--stage", "E"])
+        parser.parse_args(["run", "--stage", "F"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["candidates", "--stage", "F"])
 
 
 def test_cli_stage_c_preview_lists_recipes_and_templates(isolated, repo_root, genesis_block):

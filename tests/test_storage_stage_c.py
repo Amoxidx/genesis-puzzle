@@ -228,7 +228,7 @@ def test_old_schema_witness_row_migrates_to_stage_b(isolated):
     sql = store.conn.execute(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='witness_candidates'"
     ).fetchone()[0]
-    assert "CHECK (first_tested_stage IN ('B', 'C', 'D'))" in sql.replace("\n", " ")
+    assert "CHECK (first_tested_stage IN ('B', 'C', 'D', 'E'))" in sql.replace("\n", " ")
     rows = list_witness_candidates(store.conn)
     assert len(rows) == 1
     assert rows[0]["first_tested_stage"] == "B"
@@ -267,11 +267,11 @@ def test_first_tested_stage_rejects_non_b_and_c(isolated):
     )
     assert [row["first_tested_stage"] for row in list_witness_candidates(store.conn)] == ["B", "C"]
     store.conn.commit()
-    with pytest.raises(ValueError, match="first_tested_stage must be 'B', 'C', or 'D'"):
+    with pytest.raises(ValueError, match="first_tested_stage must be 'B', 'C', 'D', or 'E'"):
         upsert_witness_candidate(
             store.conn, **_base_witness("fp-b", "t1", "p2pkh_compressed", run_id, "A")
         )
-    with pytest.raises(ValueError, match="first_tested_stage must be 'B', 'C', or 'D'"):
+    with pytest.raises(ValueError, match="first_tested_stage must be 'B', 'C', 'D', or 'E'"):
         upsert_witness_candidate(
             store.conn, **_base_witness("fp-b", "t1", "p2pkh_uncompressed", run_id, "b")
         )

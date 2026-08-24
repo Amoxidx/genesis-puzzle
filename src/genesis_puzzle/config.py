@@ -70,7 +70,7 @@ def load_config(path: Path) -> AppConfig:
         )
         if modes[name].workers != 1:
             raise ValueError(
-                "Stage A+B+C deterministic stages are sequential/offline; workers must stay 1"
+                "Stage A+B+C+D deterministic stages are sequential/offline; workers must stay 1"
             )
     history_raw = payload.get("history", {})
     history = HistoryConfig(
@@ -83,7 +83,7 @@ def load_config(path: Path) -> AppConfig:
     if default_mode not in modes:
         raise ValueError("default_mode is not defined")
     if gpu:
-        raise ValueError("GPU is disabled for deterministic Stages A+B+C")
+        raise ValueError("GPU is disabled for deterministic Stages A+B+C+D")
     return AppConfig(
         default_mode=default_mode,
         gpu=False,

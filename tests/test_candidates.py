@@ -97,6 +97,27 @@ def test_deduplication_keeps_every_provenance_path():
     assert [i.recipe.derivation_id for i in items] == ["A-S1", "A-S2"]
 
 
+def test_recipe_repr_omits_direct_integer():
+    recipe = Recipe(
+        derivation_id="A-S0",
+        source="synthetic",
+        original_public_source="1",
+        representation="decimal_integer",
+        public_input_bytes=b"1",
+        transformation="identity_integer",
+        formula="k = 1",
+        confidence=0.1,
+        stage="A",
+        recipe="synthetic",
+        direct_integer=2083236893,
+    )
+    text = repr(recipe)
+    assert recipe.direct_integer == 2083236893
+    assert "direct_integer" not in text
+    assert "2083236893" not in text
+    assert f"{2083236893:064x}" not in text
+
+
 def test_preview_does_not_include_sha256_digest(genesis_block):
     from genesis_puzzle.candidates import preview_lines
 
@@ -107,14 +128,45 @@ def test_preview_does_not_include_sha256_digest(genesis_block):
     assert "private_scalar: REDACTED" in text
 
 
-def test_recipes_for_stage_supports_a_b_and_c(genesis_block):
+def test_recipes_for_stage_supports_a_b_c_and_d(genesis_block):
     from genesis_puzzle.candidates import recipes_for_stage, stage_a_recipes
     from genesis_puzzle.stage_b import stage_b_recipes
     from genesis_puzzle.stage_c import stage_c_recipes
+    from genesis_puzzle.stage_d import stage_d_recipes
 
     assert recipes_for_stage(genesis_block, "A") == stage_a_recipes(genesis_block)
     assert recipes_for_stage(genesis_block, "B") == stage_b_recipes(genesis_block)
     assert recipes_for_stage(genesis_block, "C") == stage_c_recipes(genesis_block)
+    assert recipes_for_stage(genesis_block, "D") == stage_d_recipes(genesis_block)
+
+
+def test_stage_d_route_exact_order_and_preview_omits_computed_scalars(genesis_block):
+    from genesis_puzzle.candidates import preview_for_stage, recipes_for_stage
+    from genesis_puzzle.stage_d import stage_d_recipes
+
+    expected = stage_d_recipes(genesis_block)
+    recipes = recipes_for_stage(genesis_block, "D")
+    assert recipes == expected
+    assert len(recipes) == 40
+    assert [recipe.derivation_id for recipe in recipes] == [f"D-{i:03d}" for i in range(1, 41)]
+    assert [recipe.source for recipe in recipes] == [
+        "genesis.header.nonce",
+        "genesis.header.nonce",
+        "genesis.header.timestamp",
+        "genesis.header.timestamp",
+    ] * 10
+    preview = "\n".join(preview_for_stage(genesis_block, "D"))
+    assert preview.startswith("D-001")
+    assert "D-040" in preview
+    assert "private_scalar: REDACTED" in preview
+    assert "scalars not derived" not in preview
+    for recipe in recipes:
+        scalar = compute_scalar(recipe)
+        decimal = str(scalar)
+        packed = f"{scalar:064x}"
+        assert decimal not in preview
+        assert packed not in preview
+        assert packed not in preview.lower()
 
 
 def test_nonce_ascii_sha256_candidate_matches_expected_fingerprint(genesis_block):

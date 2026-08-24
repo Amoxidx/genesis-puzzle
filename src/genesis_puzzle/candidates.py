@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 from genesis_puzzle.crypto import scalar_is_valid
@@ -20,7 +20,7 @@ class Recipe:
     confidence: float
     stage: str
     recipe: str
-    direct_integer: Optional[int] = None
+    direct_integer: Optional[int] = field(default=None, repr=False)
     skip_curve: bool = False
 
 
@@ -429,6 +429,10 @@ def recipes_for_stage(block: ParsedBlock, stage: str) -> List[Recipe]:
         from genesis_puzzle.stage_c import stage_c_recipes
 
         return stage_c_recipes(block)
+    if stage == "D":
+        from genesis_puzzle.stage_d import stage_d_recipes
+
+        return stage_d_recipes(block)
     raise ValueError(f"unsupported stage {stage!r}")
 
 

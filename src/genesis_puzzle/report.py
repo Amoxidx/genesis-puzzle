@@ -13,6 +13,32 @@ TEMPLATE_COUNT = len(WITNESS_TEMPLATES)
 EXPECTED_STAGE_C_RECIPES = 14
 EXPECTED_STAGE_C_NEW_UNIQUE = 14
 EXPECTED_STAGE_C_SCRIPTS = EXPECTED_STAGE_C_NEW_UNIQUE * TEMPLATE_COUNT
+EXPECTED_STAGE_D_RECIPES = 40
+EXPECTED_STAGE_D_NEW_UNIQUE = 40
+EXPECTED_STAGE_D_SCRIPTS = EXPECTED_STAGE_D_NEW_UNIQUE * TEMPLATE_COUNT
+EXPECTED_STAGE_E_KEYS = 8
+EXPECTED_STAGE_E_SCRIPTS = EXPECTED_STAGE_E_KEYS * TEMPLATE_COUNT
+KNOWN_WITNESS_STAGES = frozenset({"B", "C", "D"})
+STAGE_E_DATE_STRINGS: tuple[str, ...] = (
+    "2009-01-03T18:15:05Z",
+    "2009-01-03 18:15:05 UTC",
+    "2009-01-03",
+    "03/Jan/2009",
+    "03/01/2009",
+    "01/03/2009",
+    "03Jan2009",
+    "20090103",
+)
+STAGE_E_DATE_NOTES: tuple[str, ...] = (
+    "",
+    "",
+    "",
+    "",
+    " (European/day-first ambiguous)",
+    " (American/month-first ambiguous)",
+    "",
+    "",
+)
 
 
 def _utc_now() -> str:
@@ -42,7 +68,10 @@ def _witness_stage(item: Mapping[str, Any]) -> str:
     value = item.get("first_tested_stage")
     if value is None or value == "":
         return "B"
-    return "C" if str(value) == "C" else "B"
+    stage = str(value)
+    if stage in KNOWN_WITNESS_STAGES:
+        return stage
+    return stage  # unknown must not silently become B
 
 
 def _run_lines(title: str, run: Mapping[str, Any] | None, missing: str) -> str:
@@ -99,6 +128,27 @@ def _separator_lines() -> list[str]:
     ]
 
 
+def _d_formula_lines(facts: GenesisFacts) -> list[str]:
+    values = {"nonce": facts.nonce, "timestamp": facts.timestamp}
+    lines = []
+    index = 0
+    for distance in range(1, 11):
+        for field in ("nonce", "timestamp"):
+            public_value = values[field]
+            for offset in (-distance, distance):
+                index += 1
+                signed = f"{offset:+d}"
+                lines.append(f"{index}. `k = uint({field}={public_value}) + ({signed})`")
+    return lines
+
+
+def _stage_e_date_lines() -> list[str]:
+    pairs = list(zip(STAGE_E_DATE_STRINGS, STAGE_E_DATE_NOTES))
+    if len(pairs) != EXPECTED_STAGE_E_KEYS:
+        raise ValueError("Stage E requires exactly eight date/time strings")
+    return [f"{index}. `{text}`{note}" for index, (text, note) in enumerate(pairs, start=1)]
+
+
 def render_report(
     facts: GenesisFacts,
     targets: Sequence[KnownTarget],
@@ -111,6 +161,7 @@ def render_report(
     stage_a_run: Mapping[str, Any] | None = None,
     stage_b_run: Mapping[str, Any] | None = None,
     stage_c_run: Mapping[str, Any] | None = None,
+    stage_d_run: Mapping[str, Any] | None = None,
 ) -> str:
     if (
         stage_a_run is None
@@ -130,19 +181,31 @@ def render_report(
         and str(latest_run.get("stage") or "") == "C"
     ):
         stage_c_run = latest_run
+    if (
+        stage_d_run is None
+        and latest_run is not None
+        and str(latest_run.get("stage") or "") == "D"
+    ):
+        stage_d_run = latest_run
 
     stage_a_rows = _stage_rows(derivations, "A")
     stage_b_rows = _stage_rows(derivations, "B")
     stage_c_rows = _stage_rows(derivations, "C")
+    stage_d_rows = _stage_rows(derivations, "D")
     b_witness = [item for item in witness_candidates if _witness_stage(item) == "B"]
     c_witness = [item for item in witness_candidates if _witness_stage(item) == "C"]
+    d_witness = [item for item in witness_candidates if _witness_stage(item) == "D"]
     has_current_c = bool(stage_c_rows) or bool(c_witness)
+    has_current_d = bool(stage_d_rows) or bool(d_witness)
     if not has_current_c:
         stage_c_run = None
+    if not has_current_d:
+        stage_d_run = None
 
     stage_a_invalid = sum(1 for item in stage_a_rows if not _truthy(item.get("valid")))
     stage_b_invalid = sum(1 for item in stage_b_rows if not _truthy(item.get("valid")))
     stage_c_invalid = sum(1 for item in stage_c_rows if not _truthy(item.get("valid")))
+    stage_d_invalid = sum(1 for item in stage_d_rows if not _truthy(item.get("valid")))
     stage_a_unique = len(_unique_fingerprints(stage_a_rows))
     if stage_a_run is not None and stage_a_unique == 0:
         stage_a_unique = _as_int(stage_a_run, "unique_valid_keys")
@@ -151,14 +214,21 @@ def render_report(
     address_match_n = int(counts.get("target_matches", 0))
     b_match_n = sum(1 for item in b_witness if _truthy(item.get("matched")))
     c_match_n = sum(1 for item in c_witness if _truthy(item.get("matched")))
+    d_match_n = sum(1 for item in d_witness if _truthy(item.get("matched")))
     if not witness_candidates:
         stored_matches = int(counts.get("witness_matches", 0))
         b_match_n = stored_matches
         c_match_n = 0
+        d_match_n = 0
     b_tested_witness = len(b_witness)
     c_tested_witness = len(c_witness)
+    d_tested_witness = len(d_witness)
     if b_tested_witness == 0:
-        b_tested_witness = int(counts.get("witness_candidates", 0)) if not has_current_c else 0
+        b_tested_witness = (
+            int(counts.get("witness_candidates", 0))
+            if not has_current_c and not has_current_d
+            else 0
+        )
 
     b_cumulative_unique = unique_keys
     b_cumulative_duplicates = _as_int(latest_run, "duplicate_count")
@@ -177,6 +247,10 @@ def render_report(
     c_cumulative_duplicates = _as_int(stage_c_run, "duplicate_count")
     if _as_int(stage_c_run, "tested_candidate_count") and c_tested_witness == 0:
         c_tested_witness = _as_int(stage_c_run, "tested_candidate_count")
+    d_cumulative_unique = _as_int(stage_d_run, "unique_valid_keys", unique_keys)
+    d_cumulative_duplicates = _as_int(stage_d_run, "duplicate_count")
+    if _as_int(stage_d_run, "tested_candidate_count") and d_tested_witness == 0:
+        d_tested_witness = _as_int(stage_d_run, "tested_candidate_count")
 
     ab_fingerprints = _unique_fingerprints(stage_a_rows) | _unique_fingerprints(stage_b_rows)
     c_fingerprints = _unique_fingerprints(stage_c_rows)
@@ -192,19 +266,43 @@ def render_report(
         c_new_unique = max(0, c_cumulative_unique - b_cumulative_unique)
     else:
         c_new_unique = 0
+    abc_fingerprints = ab_fingerprints | c_fingerprints
+    d_fingerprints = _unique_fingerprints(stage_d_rows)
+    if not d_fingerprints:
+        d_fingerprints = {
+            str(item["fingerprint"]) for item in d_witness if item.get("fingerprint")
+        }
+    if d_fingerprints:
+        d_new_unique = (
+            len(d_fingerprints - abc_fingerprints) if abc_fingerprints else len(d_fingerprints)
+        )
+    elif has_current_d:
+        d_new_unique = max(0, d_cumulative_unique - c_cumulative_unique)
+    else:
+        d_new_unique = 0
 
     stage_a_only_scripts = stage_a_unique * TEMPLATE_COUNT
     combined_scripts = b_cumulative_unique * TEMPLATE_COUNT
     c_new_scripts = c_new_unique * TEMPLATE_COUNT
+    d_new_scripts = d_new_unique * TEMPLATE_COUNT
     abc_scripts = b_tested_witness + c_tested_witness
     if has_current_c and abc_scripts == 0:
         abc_scripts = c_cumulative_unique * TEMPLATE_COUNT
+    abcd_scripts = abc_scripts + d_tested_witness
+    if has_current_d and abcd_scripts == 0:
+        abcd_scripts = d_cumulative_unique * TEMPLATE_COUNT
 
     complete_no_match_c = (
         has_current_c
         and c_match_n == 0
         and c_tested_witness == EXPECTED_STAGE_C_SCRIPTS
         and c_new_unique == EXPECTED_STAGE_C_NEW_UNIQUE
+    )
+    complete_no_match_d = (
+        has_current_d
+        and d_match_n == 0
+        and d_tested_witness == EXPECTED_STAGE_D_SCRIPTS
+        and d_new_unique == EXPECTED_STAGE_D_NEW_UNIQUE
     )
 
     history_checked = len(checked_history)
@@ -266,6 +364,7 @@ def render_report(
 
     template_lines = _template_lines(b_witness)
     c_template_lines = _template_lines(c_witness)
+    d_template_lines = _template_lines(d_witness)
 
     address_comparison_note = (
         "No Stage A P2PKH/P2WPKH address equals the suspected P2WSH output. "
@@ -348,6 +447,22 @@ def render_report(
     remaining_n = len(remaining)
     if remaining_n == 0:
         remaining_text = "No stored valid derivation remains."
+    elif has_current_d and d_match_n:
+        remaining_text = (
+            f"{remaining_n} stored valid derivation ids are listed once under "
+            "Derivations. Review the stored P2WSH match(es) before any claim. "
+            "This is not by itself a solved puzzle."
+        )
+    elif has_current_d:
+        remaining_text = (
+            f"{remaining_n} stored valid derivation ids remain open as public-key "
+            "hypotheses, not as matches. They are listed once under Derivations. "
+            "Stage A P2PKH/P2WPKH addresses still do not test the P2WSH program. "
+            "The six generic single-key P2WSH templates did not match the target "
+            f"on the preserved Stage B set, the {c_new_unique} new Stage C keys, "
+            f"or the {d_new_unique} new Stage D keys. Other scripts and encodings "
+            "remain untested."
+        )
     elif has_current_c and c_match_n:
         remaining_text = (
             f"{remaining_n} stored valid derivation ids are listed once under "
@@ -386,6 +501,8 @@ def render_report(
         )
 
     separator_lines = _separator_lines()
+    d_formula_lines = _d_formula_lines(facts)
+    stage_e_date_lines = _stage_e_date_lines()
     if stage_b_run is not None:
         audit_line = (
             f"All {b_tested_witness} public candidate scripts, programs, addresses, and "
@@ -399,7 +516,38 @@ def render_report(
             "stored. This Markdown report does not dump those rows."
         )
 
-    if has_current_c and c_match_n:
+    if has_current_d and d_match_n:
+        remaining_followup = (
+            "A stored P2WSH template match is not by itself a solved puzzle. "
+            "Do not execute Stage E."
+        )
+        next_experiment = ""
+    elif complete_no_match_d:
+        remaining_followup = (
+            "A miss of these six templates on the executed Stage D keys is not a "
+            "proof that no puzzle exists. Remaining open work is other scripts, "
+            "other encodings, and the bounded Stage E experiment below."
+        )
+        next_experiment = f"""## Next highest-value Stage E experiment (not executed)
+
+Hypothesis, not a claim: after the executed Stage A+B+C+D set, the single
+highest-value next experiment is SHA256 once over exactly these eight UTF-8
+date/time strings, in this order:
+
+{chr(10).join(stage_e_date_lines)}
+
+Eight candidate keys, at most {EXPECTED_STAGE_E_SCRIPTS} scripts. Do not add
+newline, case, or whitespace variants. Do not add alternate time zones or
+other dates. Do not use PBKDF2, BIP39, repeated hashing, GPU, neighborhoods,
+larger combinations, or brute force. Do not execute Stage E here."""
+    elif has_current_d:
+        remaining_followup = (
+            "A miss of these six templates on the executed Stage D keys is not a "
+            "proof that no puzzle exists. Remaining open work is other scripts "
+            "and other encodings. Do not execute Stage E."
+        )
+        next_experiment = ""
+    elif has_current_c and c_match_n:
         remaining_followup = (
             "A stored P2WSH template match is not by itself a solved puzzle. "
             "Do not execute Stage D."
@@ -453,8 +601,22 @@ SHA256 each of those 14 public strings, then apply the same six P2WSH
 templates. Do not execute Stage C here. Do not add broader combinations,
 extra fields, dates, neighborhoods, or brute force."""
 
-    title_stage = "A+B+C" if has_current_c else "A+B"
-    if has_current_c:
+    if has_current_d:
+        title_stage = "A+B+C+D"
+        implemented_scope = (
+            "Deterministic Stages A, B, C, and D are implemented. Stage E, brute force, "
+            "PBKDF2/BIP39, Metal, transaction creation, wallet import, spending, and "
+            "broadcasting are out of scope."
+        )
+        init_proofs = "Stage A, Stage B, Stage C, or Stage D"
+        sequential_note = "Stage A, Stage B, Stage C, and Stage D are sequential."
+        offline_note = (
+            "Offline is the default. Stage B, Stage C, and Stage D never query chain "
+            "history. Remote history checks are explicit, batched, and send derived "
+            "public addresses only."
+        )
+    elif has_current_c:
+        title_stage = "A+B+C"
         implemented_scope = (
             "Deterministic Stages A, B, and C are implemented. Stage D, brute force, "
             "PBKDF2/BIP39, Metal, transaction creation, wallet import, spending, and "
@@ -468,6 +630,7 @@ extra fields, dates, neighborhoods, or brute force."""
             "addresses only."
         )
     else:
+        title_stage = "A+B"
         implemented_scope = (
             "Deterministic Stages A and B are implemented. Stage C, brute force, "
             "PBKDF2/BIP39, Metal, transaction creation, wallet import, spending, and "
@@ -554,6 +717,95 @@ Witness templates in actual priority (Stage C keys only; six templates times
 {c_verdict}
 
 {c_audit}
+
+"""
+
+    stage_d_section = ""
+    if has_current_d:
+        stage_d_n = len(stage_d_rows) or _as_int(stage_d_run, "derivation_count")
+        if d_match_n:
+            d_verdict = (
+                f"{d_match_n} direct P2WSH target-script match(es) were stored for "
+                "Stage D keys. Review before any further claim. This report does not "
+                "treat a template match as a solved puzzle by itself."
+            )
+        else:
+            d_verdict = (
+                "Zero stored Stage D witness candidates equal the suspected 32-byte "
+                "witness program or its native P2WSH address. That does not disprove "
+                f"the puzzle. The announcement target remains `{target_status}`."
+            )
+        d_subset = (
+            f"The {d_new_scripts} new Stage D scripts are {d_new_unique} unique Stage D "
+            f"keys times {TEMPLATE_COUNT} templates. The full combined A+B+C+D set is "
+            f"{abcd_scripts} scripts ({d_cumulative_unique} cumulative unique keys times "
+            f"{TEMPLATE_COUNT} templates). The executed Stage B run still tested "
+            f"{b_tested_witness} first_tested_stage=B rows; those {b_tested_witness} are "
+            "preserved and are not replaced. "
+            f"The executed Stage C run still tested {c_tested_witness} "
+            f"first_tested_stage=C rows; those {c_tested_witness} are preserved and are "
+            "not replaced. "
+            f"The executed Stage D run tested {d_tested_witness} first_tested_stage=D "
+            f"rows. Combined B+C remains {abc_scripts}. Combined B+C+D is {abcd_scripts}; "
+            f"it is not an extra {d_new_scripts} on top of {abcd_scripts}."
+        )
+        d_audit = (
+            f"All {d_tested_witness} public Stage D candidate scripts, programs, "
+            "addresses, and provenance are stored in SQLite alongside the preserved "
+            "Stage B and Stage C rows. Scalar material is not stored. public_input "
+            "bytes stay empty. The raw scalar is not stored or logged. Formula, signed "
+            "offset, and fingerprint are sufficient to recompute. This Markdown report "
+            "does not dump those rows."
+        )
+        stage_d_result = (
+            f"- Stage D derivations: {stage_d_n}\n"
+            f"- Stage D invalid derivations: "
+            f"{stage_d_invalid or _as_int(stage_d_run, 'invalid_count')}\n"
+            f"- Stage D new unique valid keys: {d_new_unique}\n"
+            f"- cumulative unique valid keys after A+B+C+D: {d_cumulative_unique}\n"
+            f"- cumulative duplicate provenance paths after A+B+C+D: "
+            f"{d_cumulative_duplicates}\n"
+            f"- new Stage D witness candidates: {d_tested_witness}\n"
+            f"- cumulative B+C+D witness candidates: {abcd_scripts}\n"
+            f"- P2WSH direct target matches: {d_match_n}"
+        )
+        stage_d_section = f"""
+## Hypotheses tested in Stage D
+
+Stage D is the implemented bounded direct integer-scalar neighborhood of the
+actual Genesis nonce (`{facts.nonce}`) and timestamp (`{facts.timestamp}`).
+Canonical direct nonce and timestamp values were already Stage A, so offset
+zero is excluded. Offsets are ±1..±10. Priority is distance-first: for each
+distance d from 1 to 10, nonce-d, nonce+d, timestamp-d, timestamp+d. No hashing.
+
+Each of those {EXPECTED_STAGE_D_RECIPES} recipes is the identity integer
+`k = uint(field=public_value) + (signed_offset)`. public_input bytes stay
+empty. The raw scalar is not stored or logged. The formula, signed offset,
+and fingerprint are sufficient to recompute the same public key.
+
+Exact order:
+
+{chr(10).join(d_formula_lines)}
+
+The same six P2WSH templates are applied. No extra fields, dates, combinations,
+PBKDF2/BIP39, or brute force.
+
+## Stage D results
+
+{_run_lines("Stage D run:", stage_d_run, "No Stage D run stored yet.")}
+
+{stage_d_result}
+
+Witness templates in actual priority (Stage D keys only; six templates times
+{d_new_unique} keys):
+
+{chr(10).join(d_template_lines)}
+
+{d_subset}
+
+{d_verdict}
+
+{d_audit}
 
 """
 
@@ -712,7 +964,7 @@ Witness templates in actual priority:
 {witness_verdict}
 
 {audit_line}
-{stage_c_section}
+{stage_c_section}{stage_d_section}
 ### Derivations
 
 {chr(10).join(derivation_lines) if derivation_lines else "- none stored yet"}

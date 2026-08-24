@@ -1,5 +1,5 @@
 # Packaged defaults used when the installed CLI runs outside a source checkout.
-# Deterministic Stages A, B, and C run sequentially/offline. GPU remains disabled.
+# Deterministic Stages A, B, C, and D run sequentially/offline. GPU remains disabled.
 default_mode = "balanced"
 gpu = false
 
@@ -17,19 +17,19 @@ checkpoint_interval_seconds = 60
 workers = 1
 duty_cycle = 0.20
 max_candidates_per_second = 5
-description = "Low duty cycle. Stage A+B+C still run sequentially/offline."
+description = "Low duty cycle. Stage A+B+C+D still run sequentially/offline."
 
 [modes.balanced]
 workers = 1
 duty_cycle = 1.0
 max_candidates_per_second = 0
-description = "Default. Stage A+B+C are tiny, sequential, and offline; no extra concurrency."
+description = "Default. Stage A+B+C+D are tiny, sequential, and offline; no extra concurrency."
 
 [modes.max]
 workers = 1
 duty_cycle = 1.0
 max_candidates_per_second = 0
-description = "Still sequential/offline for Stage A+B+C. Pause/resume/checkpointing and GPU are future bounded-search features, not used here."
+description = "Still sequential/offline for Stage A+B+C+D. Pause/resume/checkpointing and GPU are future bounded-search features, not used here."
 
 [history]
 batch_size = 40

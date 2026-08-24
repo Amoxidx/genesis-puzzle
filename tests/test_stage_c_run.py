@@ -23,6 +23,7 @@ from genesis_puzzle.engine import (
     run_stage_a,
     run_stage_b,
     run_stage_c,
+    run_stage_d,
 )
 from genesis_puzzle.model import KnownTarget
 from genesis_puzzle.parser import ParsedBlock
@@ -488,6 +489,56 @@ def test_stage_b_rerun_invalidates_stage_c_down_to_b_state(
     _assert_public_schema(store)
 
 
+def test_stage_c_rerun_invalidates_stage_d_down_to_c_state(isolated, genesis_block, targets):
+    store = _prepare_ab(isolated, genesis_block, targets)
+    run_stage_c(store, genesis_block, targets, MODE)
+    run_stage_d(store, genesis_block, targets, MODE)
+    assert counts(store.conn)["unique_keys"] == 159
+    assert counts(store.conn)["witness_candidates"] == 954
+    assert list_witness_candidates(store.conn, "D")
+    d_runs = store.conn.execute("SELECT COUNT(*) FROM runs WHERE stage = 'D'").fetchone()[0]
+    assert d_runs == 1
+    b_snapshot = [
+        _witness_public_snapshot(row) for row in list_witness_candidates(store.conn, "B")
+    ]
+    result = run_stage_c(store, genesis_block, targets, MODE)
+    assert result["new_unique_keys"] == 14
+    assert result["unique_valid_keys"] == 119
+    assert result["cumulative_witness_candidates"] == 714
+    after = counts(store.conn)
+    assert after["unique_keys"] == 119
+    assert after["witness_candidates"] == 714
+    assert after["witness_matches"] == 0
+    assert list_witness_candidates(store.conn, "D") == []
+    assert (
+        store.conn.execute("SELECT COUNT(*) FROM derivations WHERE stage = 'D'").fetchone()[0] == 0
+    )
+    assert (
+        store.conn.execute("SELECT COUNT(*) FROM derivations WHERE stage = 'C'").fetchone()[0]
+        == 14
+    )
+    assert store.conn.execute("SELECT COUNT(*) FROM runs WHERE stage = 'D'").fetchone()[0] == (
+        d_runs
+    )
+    assert [_witness_public_snapshot(row) for row in list_witness_candidates(store.conn, "B")] == (
+        b_snapshot
+    )
+    assert len(list_witness_candidates(store.conn, "C")) == 84
+    abc_fps = {
+        str(row[0])
+        for row in store.conn.execute(
+            "SELECT DISTINCT fingerprint FROM derivations WHERE stage IN ('A', 'B', 'C') "
+            "AND fingerprint IS NOT NULL"
+        )
+    }
+    key_fps = {
+        str(row[0]) for row in store.conn.execute("SELECT fingerprint FROM keys").fetchall()
+    }
+    assert key_fps == abc_fps
+    assert len(key_fps) == 119
+    _assert_public_schema(store)
+
+
 def _argv(isolated: Path, repo_root: Path, argv: list[str]) -> list[str]:
     return [
         "--root",
@@ -521,7 +572,7 @@ def test_cli_parser_exposes_stage_c_choices_and_help():
     run = parser.parse_args(["run", "--stage", "C", "--mode", "balanced"])
     assert run.stage == "C"
     with pytest.raises(SystemExit):
-        parser.parse_args(["run", "--stage", "D"])
+        parser.parse_args(["run", "--stage", "E"])
 
 
 def test_cli_stage_c_preview_lists_recipes_and_templates(isolated, repo_root, genesis_block):

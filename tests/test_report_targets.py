@@ -7,16 +7,59 @@ from pathlib import Path
 from genesis_puzzle.addresses import DerivedAddresses, derive_standard_addresses
 from genesis_puzzle.bech32 import encode_segwit_address
 from genesis_puzzle.candidates import evaluate_recipe, stage_a_recipes
-from genesis_puzzle.cli import main
+from genesis_puzzle.cli import _write_current_report, main
 from genesis_puzzle.config import ModeConfig
 from genesis_puzzle.crypto import derive_pubkeys
 from genesis_puzzle.engine import compare_targets, run_stage_a
 from genesis_puzzle.model import KnownTarget
 from genesis_puzzle.report import STAGE_C_SEPARATORS, render_report
-from genesis_puzzle.storage import connect, counts, latest_run
+from genesis_puzzle.stage_c import STAGE_C_SEPARATORS as STAGE_C_SEPARATORS_SOURCE
+from genesis_puzzle.storage import (
+    connect,
+    counts,
+    finish_run,
+    insert_run,
+    invalidate_stage_c_current_state,
+    latest_run,
+    upsert_derivation,
+    upsert_key,
+    upsert_witness_candidate,
+)
+from genesis_puzzle.witness import WITNESS_TEMPLATES
 
-IMMEDIATE_DUP_ID = re.compile(r"`((?:A|B)-\d+)`, `\1`")
+IMMEDIATE_DUP_ID = re.compile(r"`((?:A|B|C)-\d+)`, `\1`")
 PREVIOUS_HASH_LINE = "- previous hash: 32 zero bytes"
+EMPTY_COUNTS = {
+    "derivations": 0,
+    "invalid": 0,
+    "unique_keys": 0,
+    "p2pkh_uncompressed": 0,
+    "p2pkh_compressed": 0,
+    "p2wpkh": 0,
+    "target_matches": 0,
+    "witness_candidates": 0,
+    "witness_matches": 0,
+}
+STAGE_B_RUN = {
+    "status": "ok",
+    "mode": "balanced",
+    "notes": "checkpoint-not-needed",
+    "derivation_count": 105,
+    "invalid_count": 1,
+    "unique_valid_keys": 105,
+    "duplicate_count": 21,
+    "tested_candidate_count": 630,
+}
+STAGE_C_RUN = {
+    "status": "ok",
+    "mode": "balanced",
+    "notes": "checkpoint-not-needed",
+    "derivation_count": 14,
+    "invalid_count": 0,
+    "unique_valid_keys": 119,
+    "duplicate_count": 21,
+    "tested_candidate_count": 84,
+}
 
 
 def _assert_no_report_duplication(text: str) -> None:
@@ -72,9 +115,12 @@ def test_report_template_contains_required_sections(facts, targets):
     assert "Hypotheses tested in Stage B" in text
     assert "known-target address matches" in text
     assert "chain-history state: not checked" in text
+    assert "Stage A+B report" in text
+    assert "Stage A+B+C report" not in text
     assert "Next highest-value Stage B experiment (not executed)" in text
     assert "run --stage B" in text
     assert "Next highest-value Stage C experiment (not executed)" not in text
+    assert "Next highest-value Stage D experiment (not executed)" not in text
     assert "not executed" in text.lower()
     assert "P2WSH" in text
     assert "Addresses with blockchain history" in text
@@ -152,6 +198,7 @@ def test_report_stage_a_only_before_b(isolated, repo_root):
     _cli(isolated, repo_root, ["run", "--stage", "A", "--mode", "balanced"])
     report = (isolated / "research" / "report.md").read_text(encoding="utf-8")
     assert "Stage A+B report" in report
+    assert "Stage A+B+C report" not in report
     assert "Stage A derivations: 23" in report
     assert "Stage A invalid derivations: 1" in report
     assert "Stage A unique valid keys: 22" in report
@@ -164,6 +211,7 @@ def test_report_stage_a_only_before_b(isolated, repo_root):
     assert "Next highest-value Stage B experiment (not executed)" in report
     assert "run --stage B" in report
     assert "Next highest-value Stage C experiment (not executed)" not in report
+    assert "Next highest-value Stage D experiment (not executed)" not in report
     assert "Stage B, brute force" not in report
     assert "unexecuted" not in report.lower()
     assert "Do not execute that experiment in Milestone 1" not in report
@@ -183,6 +231,7 @@ def test_report_stage_a_and_b_after_b(isolated, repo_root):
     _cli(isolated, repo_root, ["run", "--stage", "B", "--mode", "balanced"])
     report = (isolated / "research" / "report.md").read_text(encoding="utf-8")
     assert "Stage A+B report" in report
+    assert "Stage A+B+C report" not in report
     assert "Stage A derivations: 23" in report
     assert "Stage A invalid derivations: 1" in report
     assert "Stage A unique valid keys: 22" in report
@@ -192,6 +241,8 @@ def test_report_stage_a_and_b_after_b(isolated, repo_root):
     assert "cumulative duplicate provenance paths after A+B: 21" in report
     assert "tested witness candidates: 630" in report
     assert "P2WSH direct target matches: 0" in report
+    assert "cumulative unique valid keys after A+B+C" not in report
+    assert "Next highest-value Stage D experiment (not executed)" not in report
     assert "132 Stage-A-only" in report
     assert "not an extra 132 on top of 630" in report
     assert "The executed Stage B run tested 630 witness candidates." in report
@@ -222,14 +273,15 @@ def test_report_stage_a_and_b_after_b(isolated, repo_root):
     assert "8-byte endian byte sequence" in stage_b_hypotheses
     sep_block = report.split("exactly these seven separators:", 1)[1]
     positions = [
-        sep_block.index(f"{index}. {name} `{token}`")
-        for index, (name, token) in enumerate(STAGE_C_SEPARATORS, start=1)
+        sep_block.index(f"{index}. {separator.name} `{separator.token}`")
+        for index, separator in enumerate(STAGE_C_SEPARATORS, start=1)
     ]
     assert positions == sorted(positions)
 
 
 def test_stage_c_separators_exact_names_tokens_and_report_order(facts, targets):
-    assert [name for name, _token in STAGE_C_SEPARATORS] == [
+    assert STAGE_C_SEPARATORS is STAGE_C_SEPARATORS_SOURCE
+    assert [separator.name for separator in STAGE_C_SEPARATORS] == [
         "empty string",
         "colon",
         "pipe",
@@ -238,7 +290,7 @@ def test_stage_c_separators_exact_names_tokens_and_report_order(facts, targets):
         "ASCII space",
         "ASCII newline",
     ]
-    assert [token for _name, token in STAGE_C_SEPARATORS] == [
+    assert [separator.token for separator in STAGE_C_SEPARATORS] == [
         '""',
         '":"',
         '"|"',
@@ -247,45 +299,446 @@ def test_stage_c_separators_exact_names_tokens_and_report_order(facts, targets):
         '" "',
         r'"\n"',
     ]
+    assert [separator.value for separator in STAGE_C_SEPARATORS] == [
+        b"",
+        b":",
+        b"|",
+        b"-",
+        b"_",
+        b" ",
+        b"\n",
+    ]
+    text = render_report(
+        facts,
+        targets,
+        EMPTY_COUNTS,
+        {"stage": "B", "status": "ok", "mode": "balanced", "notes": "checkpoint-not-needed"},
+        [],
+        [],
+        [],
+        [],
+        stage_b_run=STAGE_B_RUN,
+    )
+    assert "Next highest-value Stage C experiment (not executed)" in text
+    assert "Next highest-value Stage B experiment (not executed)" not in text
+    assert "Next highest-value Stage D experiment (not executed)" not in text
+    assert "Stage A+B+C report" not in text
+    block = text.split("exactly these seven separators:", 1)[1]
+    rendered = [
+        f"{index}. {separator.name} `{separator.token}`"
+        for index, separator in enumerate(STAGE_C_SEPARATORS, start=1)
+    ]
+    positions = [block.index(line) for line in rendered]
+    assert positions == sorted(positions)
+    assert STAGE_C_SEPARATORS[2].token == '"|"'
+    assert '","' not in "".join(separator.token for separator in STAGE_C_SEPARATORS)
+    _assert_no_report_duplication(text)
+
+
+def _c_derivations(count: int = 14) -> list[dict]:
+    return [
+        {
+            "derivation_id": f"C-{index:03d}",
+            "stage": "C",
+            "valid": 1,
+            "recipe": f"SHA256 pairwise nonce/timestamp {index}",
+            "source": "genesis.header.nonce_and_timestamp",
+            "transformation": "sha256",
+            "confidence": 0.18,
+            "fingerprint": f"c-fp-{index:03d}",
+        }
+        for index in range(1, count + 1)
+    ]
+
+
+def _c_witness_rows(
+    fingerprints: list[str],
+    matched_fingerprint: str | None = None,
+    templates: list[str] | None = None,
+) -> list[dict]:
+    names = templates or [template.name for template in WITNESS_TEMPLATES]
+    rows = []
+    for name in names:
+        for fingerprint in fingerprints:
+            rows.append(
+                {
+                    "fingerprint": fingerprint,
+                    "template_id": name,
+                    "template_name": name,
+                    "matched": 1 if fingerprint == matched_fingerprint else 0,
+                    "first_tested_stage": "C",
+                }
+            )
+    return rows
+
+
+def _assert_complete_no_match_c(report: str) -> None:
+    assert "Stage A+B+C report" in report
+    assert "Stage A+B report" not in report
+    assert "Deterministic Stages A, B, and C are implemented" in report
+    assert "Stage D, brute force" in report
+    assert "Stage C, brute force" not in report
+    assert "cumulative unique valid keys after A+B: 105" in report
+    assert "tested witness candidates: 630" in report
+    assert "Stage C derivations: 14" in report
+    assert "Stage C new unique valid keys: 14" in report
+    assert "cumulative unique valid keys after A+B+C: 119" in report
+    assert "cumulative duplicate provenance paths after A+B+C: 21" in report
+    assert "new Stage C witness candidates: 84" in report
+    assert "cumulative B+C witness candidates: 714" in report
+    assert "six templates times" in report
+    assert "14 keys" in report
+    assert "P2WSH direct target matches: 0" in report
+    assert "Next highest-value Stage D experiment (not executed)" in report
+    assert "Next highest-value Stage C experiment (not executed)" not in report
+    stage_d = report.split("Next highest-value Stage D experiment (not executed)", 1)[1]
+    assert "direct-scalar" in stage_d or "direct scalar" in stage_d
+    assert "-10..-1" in stage_d
+    assert "+1..+10" in stage_d
+    assert "excluding zero" in stage_d
+    assert "40 keys" in stage_d
+    assert "at most 240 scripts" in stage_d
+    assert "Do not hash" in stage_d
+    assert "combinations" in stage_d
+    assert "dates" in stage_d
+    assert "window" in stage_d
+    assert "PBKDF2" in stage_d
+    assert "BIP39" in stage_d
+    assert "GPU" in stage_d
+    assert "brute force" in stage_d
+    assert "Do not\nexecute Stage D here" in stage_d or "Do not execute Stage D here" in stage_d
+    _assert_no_report_duplication(report)
+
+
+def test_report_complete_no_match_stage_c(facts, targets):
+    fingerprints = [f"c-fp-{index:03d}" for index in range(1, 15)]
     text = render_report(
         facts,
         targets,
         {
-            "derivations": 0,
-            "invalid": 0,
-            "unique_keys": 0,
-            "p2pkh_uncompressed": 0,
-            "p2pkh_compressed": 0,
-            "p2wpkh": 0,
-            "target_matches": 0,
-            "witness_candidates": 0,
+            **EMPTY_COUNTS,
+            "unique_keys": 119,
+            "witness_candidates": 714,
+            "witness_matches": 0,
+        },
+        {"stage": "C", "status": "ok", "mode": "balanced", "notes": "checkpoint-not-needed"},
+        _c_derivations(),
+        [],
+        [],
+        _c_witness_rows(fingerprints),
+        stage_b_run=STAGE_B_RUN,
+        stage_c_run=STAGE_C_RUN,
+    )
+    _assert_complete_no_match_c(text)
+    for template in WITNESS_TEMPLATES:
+        assert f"`{template.name}`" in text
+        assert "tested 14" in text
+    c_section = text.split("Hypotheses tested in Stage C", 1)[1]
+    assert "tested 14" in c_section
+    assert "first_tested_stage=B rows" in c_section
+    assert "first_tested_stage=C" in c_section
+    sep_block = c_section.split("exactly these seven separators:", 1)[1]
+    positions = [
+        sep_block.index(f"{index}. {separator.name} `{separator.token}`")
+        for index, separator in enumerate(STAGE_C_SEPARATORS, start=1)
+    ]
+    assert positions == sorted(positions)
+
+
+def test_report_stage_c_via_cli(isolated, repo_root):
+    _cli(isolated, repo_root, ["init"])
+    _cli(isolated, repo_root, ["run", "--stage", "A", "--mode", "balanced"])
+    _cli(isolated, repo_root, ["run", "--stage", "B", "--mode", "balanced"])
+    _cli(isolated, repo_root, ["run", "--stage", "C", "--mode", "balanced"])
+    report = (isolated / "research" / "report.md").read_text(encoding="utf-8")
+    _assert_complete_no_match_c(report)
+    assert "priority 1: `p2pk_compressed`" in report
+    assert "priority 6: `p2pkh_uncompressed`" in report
+    assert "tested 105" in report
+    assert "2083236893" in report
+    assert "1231006505" in report
+    assert report.count("bc1q") < 30
+
+
+def test_report_partial_stage_c_match_does_not_recommend_d(facts, targets):
+    fingerprint = "c-fp-001"
+    text = render_report(
+        facts,
+        targets,
+        {
+            **EMPTY_COUNTS,
+            "unique_keys": 106,
+            "witness_candidates": 631,
+            "witness_matches": 1,
+        },
+        {
+            "stage": "C",
+            "status": "potential_match",
+            "mode": "balanced",
+            "notes": "checkpoint-not-needed",
+        },
+        _c_derivations(1),
+        [],
+        [],
+        _c_witness_rows(
+            [fingerprint],
+            matched_fingerprint=fingerprint,
+            templates=["p2pk_compressed"],
+        ),
+        stage_b_run=STAGE_B_RUN,
+        stage_c_run={
+            **STAGE_C_RUN,
+            "status": "potential_match",
+            "derivation_count": 1,
+            "unique_valid_keys": 106,
+            "tested_candidate_count": 1,
+        },
+    )
+    assert "Stage A+B+C report" in text
+    assert "P2WSH direct target matches: 1" in text
+    assert "1 direct P2WSH target-script match(es) were stored for Stage C keys" in text
+    assert "Next highest-value Stage D experiment (not executed)" not in text
+    assert "Do not execute Stage D" in text
+    assert "cumulative unique valid keys after A+B: 105" in text
+    assert "tested witness candidates: 630" in text
+    _assert_no_report_duplication(text)
+
+
+def test_stale_stage_c_run_after_b_invalidation_stays_ab(facts, targets):
+    text = render_report(
+        facts,
+        targets,
+        {
+            **EMPTY_COUNTS,
+            "unique_keys": 105,
+            "witness_candidates": 630,
             "witness_matches": 0,
         },
         {"stage": "B", "status": "ok", "mode": "balanced", "notes": "checkpoint-not-needed"},
         [],
         [],
         [],
-        [],
-        stage_b_run={
-            "status": "ok",
-            "mode": "balanced",
-            "notes": "checkpoint-not-needed",
-            "derivation_count": 105,
-            "invalid_count": 1,
-            "unique_valid_keys": 105,
-            "duplicate_count": 21,
-            "tested_candidate_count": 630,
-        },
+        [{"template_name": "p2pk_compressed", "matched": 0}],
+        stage_b_run=STAGE_B_RUN,
+        stage_c_run=STAGE_C_RUN,
     )
+    assert "Stage A+B report" in text
+    assert "Stage A+B+C report" not in text
     assert "Next highest-value Stage C experiment (not executed)" in text
-    assert "Next highest-value Stage B experiment (not executed)" not in text
-    block = text.split("exactly these seven separators:", 1)[1]
-    rendered = [
-        f"{index}. {name} `{token}`"
-        for index, (name, token) in enumerate(STAGE_C_SEPARATORS, start=1)
-    ]
-    positions = [block.index(line) for line in rendered]
-    assert positions == sorted(positions)
-    assert [token for _name, token in STAGE_C_SEPARATORS][2] == '"|"'
-    assert '","' not in "".join(token for _name, token in STAGE_C_SEPARATORS)
+    assert "Next highest-value Stage D experiment (not executed)" not in text
+    assert "cumulative unique valid keys after A+B+C" not in text
+    assert "Stage C derivations: 14" not in text
+    assert "new Stage C witness candidates: 84" not in text
     _assert_no_report_duplication(text)
+
+
+def test_stale_stage_c_after_cli_b_invalidation(isolated, repo_root):
+    _cli(isolated, repo_root, ["init"])
+    _cli(isolated, repo_root, ["run", "--stage", "A", "--mode", "balanced"])
+    _cli(isolated, repo_root, ["run", "--stage", "B", "--mode", "balanced"])
+    _cli(isolated, repo_root, ["run", "--stage", "C", "--mode", "balanced"])
+    _cli(isolated, repo_root, ["run", "--stage", "B", "--mode", "balanced"])
+    report = (isolated / "research" / "report.md").read_text(encoding="utf-8")
+    assert "Stage A+B report" in report
+    assert "Stage A+B+C report" not in report
+    assert "Next highest-value Stage C experiment (not executed)" in report
+    assert "Next highest-value Stage D experiment (not executed)" not in report
+    assert "cumulative unique valid keys after A+B: 105" in report
+    assert "tested witness candidates: 630" in report
+    assert "cumulative unique valid keys after A+B+C" not in report
+    assert "Stage C, brute force" in report
+    _assert_no_report_duplication(report)
+
+
+def test_legacy_witness_without_first_tested_stage_counts_as_b(facts, targets):
+    text = render_report(
+        facts,
+        targets,
+        EMPTY_COUNTS,
+        {"stage": "B", "status": "ok", "mode": "balanced", "notes": "checkpoint-not-needed"},
+        [],
+        [],
+        [],
+        [
+            {"template_name": "p2pk_compressed", "matched": 0},
+            {"template_name": "p2pkh_uncompressed", "matched": 0},
+        ],
+        stage_b_run=STAGE_B_RUN,
+    )
+    assert "Stage A+B report" in text
+    assert "Stage A+B+C report" not in text
+    assert "Next highest-value Stage C experiment (not executed)" in text
+    assert "Next highest-value Stage D experiment (not executed)" not in text
+    _assert_no_report_duplication(text)
+
+
+def _finish(
+    conn,
+    run_id: int,
+    *,
+    derivation_count: int,
+    unique_valid_keys: int,
+    duplicate_count: int = 0,
+    tested_candidate_count: int = 0,
+    elapsed_seconds: float = 1.0,
+    status: str = "ok",
+) -> None:
+    finish_run(
+        conn,
+        run_id,
+        "2026-01-01T00:00:01Z",
+        status,
+        derivation_count,
+        0,
+        unique_valid_keys,
+        duplicate_count,
+        0,
+        elapsed_seconds,
+        tested_candidate_count,
+    )
+
+
+def _seed_derivation(conn, derivation_id: str, fingerprint: str, run_id: int) -> None:
+    upsert_derivation(
+        conn,
+        derivation_id=derivation_id,
+        fingerprint=fingerprint,
+        source="test",
+        original_public_source="test",
+        representation="test",
+        public_input_hex="00",
+        transformation="none",
+        formula="k = 1",
+        recipe="test recipe",
+        confidence=0.1,
+        stage=derivation_id[0],
+        valid=True,
+        eliminated_reason="",
+        run_id=run_id,
+    )
+
+
+def _seed_witness(conn, fingerprint: str, run_id: int, first_tested_stage: str) -> None:
+    upsert_witness_candidate(
+        conn,
+        fingerprint=fingerprint,
+        target_id="t1",
+        template_id="p2pk_compressed",
+        template_name="p2pk_compressed",
+        priority=1,
+        pubkey_mode="compressed",
+        pubkey_hex="02" + "ab" * 32,
+        witness_script_hex="21" + "02" + "ab" * 32 + "ac",
+        witness_program_hex="cd" * 32,
+        address=f"bc1q{fingerprint}",
+        derivation_ids=f"{first_tested_stage}-001",
+        matched=False,
+        run_id=run_id,
+        first_tested_stage=first_tested_stage,
+    )
+
+
+def _capture_render(monkeypatch) -> dict:
+    captured: dict = {}
+
+    def fake_render(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return "captured-report"
+
+    monkeypatch.setattr("genesis_puzzle.cli.render_report", fake_render)
+    return captured
+
+
+def test_cli_report_passes_exact_c_run_when_latest_run_is_another_stage(
+    isolated, repo_root, monkeypatch
+):
+    store = connect(isolated / "state" / "research.sqlite")
+    conn = store.conn
+    run_c = insert_run(conn, "2026-01-01T00:00:00Z", "C", "eco", "ok")
+    _finish(
+        conn,
+        run_c,
+        derivation_count=14,
+        unique_valid_keys=119,
+        duplicate_count=21,
+        tested_candidate_count=84,
+        elapsed_seconds=9.87,
+    )
+    run_a = insert_run(conn, "2026-01-01T00:01:00Z", "A", "max", "ok")
+    _finish(
+        conn,
+        run_a,
+        derivation_count=23,
+        unique_valid_keys=22,
+        elapsed_seconds=0.11,
+    )
+    upsert_key(conn, "fp-c", run_c)
+    _seed_derivation(conn, "C-001", "fp-c", run_c)
+    _seed_witness(conn, "fp-c", run_c, "C")
+    conn.commit()
+
+    captured = _capture_render(monkeypatch)
+    _write_current_report(store, repo_root, isolated / "research" / "report.md")
+    stage_c_run = captured["kwargs"]["stage_c_run"]
+    latest = captured["args"][3]
+    assert latest is not None
+    assert latest["id"] == run_a
+    assert latest["stage"] == "A"
+    assert stage_c_run is not None
+    assert stage_c_run["id"] == run_c
+    assert stage_c_run["stage"] == "C"
+    assert stage_c_run["mode"] == "eco"
+    assert stage_c_run["unique_valid_keys"] == 119
+    assert stage_c_run["derivation_count"] == 14
+    assert stage_c_run["tested_candidate_count"] == 84
+    assert stage_c_run["elapsed_seconds"] == 9.87
+    assert captured["kwargs"]["stage_a_run"]["id"] == run_a
+
+
+def test_cli_report_ignores_stale_historical_c_after_b_invalidation(
+    isolated, repo_root, monkeypatch
+):
+    store = connect(isolated / "state" / "research.sqlite")
+    conn = store.conn
+    run_c = insert_run(conn, "2026-01-01T00:00:00Z", "C", "eco", "ok")
+    _finish(
+        conn,
+        run_c,
+        derivation_count=14,
+        unique_valid_keys=119,
+        duplicate_count=21,
+        tested_candidate_count=84,
+        elapsed_seconds=9.87,
+    )
+    upsert_key(conn, "fp-b", run_c)
+    upsert_key(conn, "fp-c", run_c)
+    _seed_derivation(conn, "B-001", "fp-b", run_c)
+    _seed_derivation(conn, "C-001", "fp-c", run_c)
+    _seed_witness(conn, "fp-b", run_c, "B")
+    _seed_witness(conn, "fp-c", run_c, "C")
+    invalidate_stage_c_current_state(conn)
+    run_b = insert_run(conn, "2026-01-01T00:02:00Z", "B", "balanced", "ok")
+    _finish(
+        conn,
+        run_b,
+        derivation_count=105,
+        unique_valid_keys=105,
+        duplicate_count=21,
+        tested_candidate_count=630,
+        elapsed_seconds=2.0,
+    )
+    conn.commit()
+
+    captured = _capture_render(monkeypatch)
+    _write_current_report(store, repo_root, isolated / "research" / "report.md")
+    latest = captured["args"][3]
+    assert latest is not None
+    assert latest["id"] == run_b
+    assert latest["stage"] == "B"
+    assert captured["kwargs"]["stage_c_run"] is None
+    assert captured["kwargs"]["stage_b_run"]["id"] == run_b
+    remaining_stages = {row["stage"] for row in captured["args"][4]}
+    assert "C" not in remaining_stages
+    witness_stages = {row.get("first_tested_stage") for row in captured["args"][7]}
+    assert "C" not in witness_stages

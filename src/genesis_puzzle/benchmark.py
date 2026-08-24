@@ -47,6 +47,7 @@ def run_benchmark(block: ParsedBlock) -> List[str]:
     for name, (iterations, elapsed, rate) in measurements.items():
         lines.append(f"  {name}: {iterations} iters in {elapsed:.4f}s -> {rate:.1f} /s")
     lines.append(
-        "Stage A+B deterministic stages do not need pause/resume; these numbers are laptop-local."
+        "Stage A+B+C deterministic sequential/offline stages do not need pause/resume; "
+        "these numbers are laptop-local."
     )
     return lines

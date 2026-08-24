@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "genesis-puzzle"
-version = "0.2.0"
-description = "Local, auditable Bitcoin Genesis Puzzle researcher (deterministic Stage A and Stage B)"
+version = "0.3.0"
+description = "Local, auditable Bitcoin Genesis Puzzle researcher (deterministic Stage A, Stage B, and Stage C; sequential/offline)"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [{ name = "Joshua Kruger" }]

@@ -425,6 +425,10 @@ def recipes_for_stage(block: ParsedBlock, stage: str) -> List[Recipe]:
         from genesis_puzzle.stage_b import stage_b_recipes
 
         return stage_b_recipes(block)
+    if stage == "C":
+        from genesis_puzzle.stage_c import stage_c_recipes
+
+        return stage_c_recipes(block)
     raise ValueError(f"unsupported stage {stage!r}")
 
 

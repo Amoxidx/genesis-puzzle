@@ -11,9 +11,11 @@ from genesis_puzzle.candidates import preview_for_stage, recipes_for_stage
 from genesis_puzzle.config import AppConfig, load_config
 from genesis_puzzle.engine import (
     StageBPrerequisiteError,
+    StageCPrerequisiteError,
     TargetConsistencyError,
     run_stage_a,
     run_stage_b,
+    run_stage_c,
 )
 from genesis_puzzle.history import BlockchainInfoMultiaddrProvider, HistoryResult, chunked
 from genesis_puzzle.model import load_genesis_facts, load_known_targets
@@ -47,9 +49,9 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="genesis-puzzle",
         description=(
             "Local auditable Bitcoin Genesis Puzzle researcher. "
-            "Implements Stage A and Stage B deterministic stages. "
-            "Pause/resume/checkpointing are future bounded-search features and "
-            "are not used here."
+            "Implements deterministic Stage A, Stage B, and Stage C "
+            "(sequential/offline). Pause/resume/checkpointing are future "
+            "bounded-search features and are not used here."
         ),
     )
     parser.add_argument("--root", default=None, help="Project root (data/, config.toml)")
@@ -62,15 +64,18 @@ def _build_parser() -> argparse.ArgumentParser:
 
     cand = sub.add_parser(
         "candidates",
-        help="Preview ordered Stage A or Stage B recipes without deriving a private scalar",
+        help=(
+            "Preview ordered Stage A, Stage B, or Stage C recipes without "
+            "deriving a private scalar"
+        ),
     )
-    cand.add_argument("--stage", required=True, choices=["A", "B"])
+    cand.add_argument("--stage", required=True, choices=["A", "B", "C"])
 
     run = sub.add_parser(
         "run",
-        help="Derive Stage A or Stage B keys and store public results",
+        help="Derive Stage A, Stage B, or Stage C keys and store public results",
     )
-    run.add_argument("--stage", required=True, choices=["A", "B"])
+    run.add_argument("--stage", required=True, choices=["A", "B", "C"])
     run.add_argument("--mode", choices=["eco", "balanced", "max"], default=None)
 
     sub.add_parser(
@@ -81,7 +86,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "status",
         help=(
             "Latest run status/count/rate/mode/elapsed; checkpoint is not needed "
-            "for Stage A+B deterministic stages"
+            "for Stage A+B+C deterministic sequential/offline stages"
         ),
     )
     sub.add_parser("report", help="Regenerate research/report.md from stored facts/results")
@@ -126,6 +131,7 @@ def _write_current_report(store: Store, root: Path, report_path: Path) -> None:
     run_map = dict(run) if run is not None else None
     stage_a = latest_run_for_stage(conn, "A")
     stage_b = latest_run_for_stage(conn, "B")
+    stage_c = latest_run_for_stage(conn, "C")
     derivations = [
         dict(row)
         for row in conn.execute("SELECT * FROM derivations ORDER BY derivation_id").fetchall()
@@ -135,6 +141,9 @@ def _write_current_report(store: Store, root: Path, report_path: Path) -> None:
     ]
     checked_history = [dict(row) for row in history_rows(conn)]
     witness_rows = [dict(row) for row in list_witness_candidates(conn)]
+    has_current_c = any(str(row.get("stage") or "") == "C" for row in derivations) or any(
+        str(row.get("first_tested_stage") or "") == "C" for row in witness_rows
+    )
     content = render_report(
         facts,
         targets,
@@ -146,6 +155,7 @@ def _write_current_report(store: Store, root: Path, report_path: Path) -> None:
         witness_rows,
         stage_a_run=dict(stage_a) if stage_a is not None else None,
         stage_b_run=dict(stage_b) if stage_b is not None else None,
+        stage_c_run=dict(stage_c) if stage_c is not None and has_current_c else None,
     )
     write_report(report_path, content)
 
@@ -158,8 +168,8 @@ def cmd_init(args: argparse.Namespace, out: TextIO) -> int:
     _write_current_report(store, root, report_path)
     out.write(f"init ok  db={db_path}  proofs=verified  header_bytes={len(block.header.raw)}\n")
     out.write(
-        "checkpointing is a future bounded-search feature; Stage A+B deterministic "
-        "stages do not need it\n"
+        "checkpointing is a future bounded-search feature; Stage A+B+C "
+        "deterministic sequential/offline stages do not need it\n"
     )
     return 0
 
@@ -172,7 +182,7 @@ def cmd_candidates(args: argparse.Namespace, out: TextIO) -> int:
     out.write(f"stage {args.stage} recipes: {len(recipes)} (preview only, scalars not derived)\n")
     for line in preview_for_stage(block, args.stage):
         out.write(line + "\n")
-    if args.stage == "B":
+    if args.stage in ("B", "C"):
         out.write("witness templates (global priority order, up to six scripts per unique key):\n")
         for template in WITNESS_TEMPLATES:
             out.write(f"    {template.priority}. {template.name}\n")
@@ -194,10 +204,17 @@ def cmd_run(args: argparse.Namespace, out: TextIO) -> int:
         if args.stage == "A":
             summary = run_stage_a(store, block, targets, mode, out=out)
             extra = f"addresses={summary['addresses']}"
-        else:
+        elif args.stage == "B":
             summary = run_stage_b(store, block, targets, mode, out=out)
             extra = f"witness_candidates={summary['witness_candidates']}"
-    except (StageBPrerequisiteError, TargetConsistencyError) as exc:
+        else:
+            summary = run_stage_c(store, block, targets, mode, out=out)
+            extra = (
+                f"new_unique_keys={summary['new_unique_keys']}  "
+                f"witness_candidates_tested={summary['witness_candidates_tested']}  "
+                f"cumulative_witness_candidates={summary['cumulative_witness_candidates']}"
+            )
+    except (StageBPrerequisiteError, StageCPrerequisiteError, TargetConsistencyError) as exc:
         out.write(f"error: {exc}\n")
         return 1
     _write_current_report(store, root, report_path)
@@ -230,7 +247,8 @@ def cmd_status(args: argparse.Namespace, out: TextIO) -> int:
     if run is None:
         out.write("status: no runs stored\n")
         out.write(
-            "checkpoint: not needed (Stage A+B deterministic stages are tiny and sequential)\n"
+            "checkpoint: not needed (Stage A+B+C deterministic stages are tiny, "
+            "sequential, and offline)\n"
         )
         return 0
     out.write(

@@ -1,6 +1,6 @@
-# Genesis Puzzle — Stage A+B report
+# Genesis Puzzle — Stage A+B+C report
 
-Generated 2026-08-23 15:22:30Z from stored facts and SQLite results. Private candidate
+Generated 2026-08-23 17:12:31Z from stored facts and SQLite results. Private candidate
 scalars are redacted and are not stored.
 
 ## Puzzle statement
@@ -20,9 +20,7 @@ scalar or as SHA256 of that field, produces a standard Bitcoin address or a
 generic single-key P2WSH program that can be compared against a later suspected
 puzzle output.
 
-This is not a general private-key cracking framework. Deterministic Stages A
-and B are implemented. Stage C, brute force, PBKDF2/BIP39, Metal, transaction
-creation, wallet import, spending, and broadcasting are out of scope.
+This is not a general private-key cracking framework. Deterministic Stages A, B, and C are implemented. Stage D, brute force, PBKDF2/BIP39, Metal, transaction creation, wallet import, spending, and broadcasting are out of scope.
 
 ## Known public facts
 
@@ -58,7 +56,7 @@ proofs that must hold after parse:
 3. The one-transaction Merkle root equals the header Merkle root.
 4. Headline and uncompressed pubkey match the canonical document.
 
-`init` re-runs these proofs before any Stage A or Stage B derivation.
+`init` re-runs these proofs before any Stage A, Stage B, or Stage C derivation.
 
 ## Hypotheses tested in Stage A
 
@@ -201,6 +199,60 @@ Zero stored witness candidates equal the suspected 32-byte witness program or it
 
 All 630 public candidate scripts, programs, addresses, and provenance for the executed Stage B run are stored in SQLite. Scalar material is not stored. This Markdown report does not dump those rows.
 
+## Hypotheses tested in Stage C
+
+Stage C is the implemented bounded pairwise combination of the actual nonce
+and timestamp ASCII decimal values (`2083236893` and `1231006505`)
+in both orders (`nonce || separator || timestamp` and
+`timestamp || separator || nonce`) with exactly these seven separators:
+
+1. empty string `""`
+2. colon `":"`
+3. pipe `"|"`
+4. hyphen `"-"`
+5. underscore `"_"`
+6. ASCII space `" "`
+7. ASCII newline `"\n"`
+
+Each of those 14 public strings is SHA256'd, then the
+same six P2WSH templates are applied. No extra fields, dates, neighborhoods,
+PBKDF2/BIP39, or brute force.
+
+## Stage C results
+
+Stage C run:
+- status: ok
+- mode: balanced
+- elapsed_seconds: 0.0033158333972096443
+- rate_per_second: 4222.1662921247325
+- checkpoint: checkpoint-not-needed
+
+- Stage C derivations: 14
+- Stage C invalid derivations: 0
+- Stage C new unique valid keys: 14
+- cumulative unique valid keys after A+B+C: 119
+- cumulative duplicate provenance paths after A+B+C: 21
+- new Stage C witness candidates: 84
+- cumulative B+C witness candidates: 714
+- P2WSH direct target matches: 0
+
+Witness templates in actual priority (Stage C keys only; six templates times
+14 keys):
+
+- priority 1: `p2pk_compressed` (compressed; modern canonical / descriptor-compatible); tested 14
+- priority 2: `p2pk_uncompressed` (uncompressed; lower-priority historical/manual possibility, not standard descriptor-compatible); tested 14
+- priority 3: `multisig_1of1_compressed` (compressed; modern canonical / descriptor-compatible); tested 14
+- priority 4: `multisig_1of1_uncompressed` (uncompressed; lower-priority historical/manual possibility, not standard descriptor-compatible); tested 14
+- priority 5: `p2pkh_compressed` (compressed; modern canonical / descriptor-compatible); tested 14
+- priority 6: `p2pkh_uncompressed` (uncompressed; lower-priority historical/manual possibility, not standard descriptor-compatible); tested 14
+
+The 84 new Stage C scripts are 14 unique Stage C keys times 6 templates. The full combined A+B+C set is 714 scripts (119 cumulative unique keys times 6 templates). The executed Stage B run still tested 630 first_tested_stage=B rows; those 630 are preserved and are not replaced. The executed Stage C run tested 84 first_tested_stage=C rows. Combined B+C is 714; it is not an extra 84 on top of 714.
+
+Zero stored Stage C witness candidates equal the suspected 32-byte witness program or its native P2WSH address. That does not disprove the puzzle. The announcement target remains `suspected_not_proven`.
+
+All 84 public Stage C candidate scripts, programs, addresses, and provenance are stored in SQLite alongside the preserved Stage B rows. Scalar material is not stored. This Markdown report does not dump those rows.
+
+
 ### Derivations
 
 - `A-01` [valid] Interpret the public Genesis header nonce as a secp256k1 scalar. (source `genesis.header.nonce`, transform `identity_integer`, confidence 0.55)
@@ -331,6 +383,20 @@ All 630 public candidate scripts, programs, addresses, and provenance for the ex
 - `B-103` [valid] SHA256 of the exact UTF-8 string 'Bitcoin'. (source `text.bitcoin`, transform `sha256`, confidence 0.04)
 - `B-104` [valid] SHA256 of the exact UTF-8 string 'genesis'. (source `text.genesis`, transform `sha256`, confidence 0.04)
 - `B-105` [valid] SHA256 of the exact UTF-8 string 'genesis block'. (source `text.genesis_block`, transform `sha256`, confidence 0.04)
+- `C-001` [valid] SHA256 of the ASCII decimal nonce followed by empty string "" followed by the ASCII decimal timestamp. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.18)
+- `C-002` [valid] SHA256 of the ASCII decimal timestamp followed by empty string "" followed by the ASCII decimal nonce. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.175)
+- `C-003` [valid] SHA256 of the ASCII decimal nonce followed by colon ":" followed by the ASCII decimal timestamp. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.17)
+- `C-004` [valid] SHA256 of the ASCII decimal timestamp followed by colon ":" followed by the ASCII decimal nonce. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.165)
+- `C-005` [valid] SHA256 of the ASCII decimal nonce followed by pipe "|" followed by the ASCII decimal timestamp. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.16)
+- `C-006` [valid] SHA256 of the ASCII decimal timestamp followed by pipe "|" followed by the ASCII decimal nonce. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.155)
+- `C-007` [valid] SHA256 of the ASCII decimal nonce followed by hyphen "-" followed by the ASCII decimal timestamp. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.15)
+- `C-008` [valid] SHA256 of the ASCII decimal timestamp followed by hyphen "-" followed by the ASCII decimal nonce. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.145)
+- `C-009` [valid] SHA256 of the ASCII decimal nonce followed by underscore "_" followed by the ASCII decimal timestamp. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.14)
+- `C-010` [valid] SHA256 of the ASCII decimal timestamp followed by underscore "_" followed by the ASCII decimal nonce. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.135)
+- `C-011` [valid] SHA256 of the ASCII decimal nonce followed by ASCII space " " followed by the ASCII decimal timestamp. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.13)
+- `C-012` [valid] SHA256 of the ASCII decimal timestamp followed by ASCII space " " followed by the ASCII decimal nonce. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.125)
+- `C-013` [valid] SHA256 of the ASCII decimal nonce followed by ASCII newline "\n" followed by the ASCII decimal timestamp. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.12)
+- `C-014` [valid] SHA256 of the ASCII decimal timestamp followed by ASCII newline "\n" followed by the ASCII decimal nonce. (source `genesis.header.nonce_and_timestamp`, transform `sha256`, confidence 0.115)
 
 ### Eliminated hypotheses
 
@@ -339,38 +405,30 @@ All 630 public candidate scripts, programs, addresses, and provenance for the ex
 
 ### Remaining hypotheses
 
-126 stored valid derivation ids remain open as public-key hypotheses, not as matches. They are listed once under Derivations. Stage A P2PKH/P2WPKH addresses still do not test the P2WSH program. The six generic single-key P2WSH templates did not match the target. Other scripts, combinations, and encodings remain untested.
+140 stored valid derivation ids remain open as public-key hypotheses, not as matches. They are listed once under Derivations. Stage A P2PKH/P2WPKH addresses still do not test the P2WSH program. The six generic single-key P2WSH templates did not match the target on the preserved Stage B set or the 14 new Stage C keys. Other scripts, encodings, and neighborhoods remain untested.
 
-A miss of these six templates is not a proof that no puzzle exists. Remaining open work is other scripts, other encodings, and the bounded Stage C experiment below.
+A miss of these six templates on the executed Stage C keys is not a proof that no puzzle exists. Remaining open work is other scripts, other encodings, and the bounded Stage D experiment below.
 
-## Next highest-value Stage C experiment (not executed)
+## Next highest-value Stage D experiment (not executed)
 
-Hypothesis, not a claim: after the executed Stage A+B set, the single
-highest-value next experiment is a *bounded pairwise combination* of the
-actual nonce and timestamp ASCII decimal values (`2083236893` and
-`1231006505`) in both orders (`nonce || separator || timestamp` and
-`timestamp || separator || nonce`) with exactly these seven separators:
+Hypothesis, not a claim: after the executed Stage A+B+C set, the single
+highest-value next experiment is a *bounded direct-scalar neighborhood* of
+the actual nonce (`2083236893`) and timestamp (`1231006505`).
+Use integer offsets -10..-1 and +1..+10, excluding zero: twenty nonce
+offsets and twenty timestamp offsets, 40 keys. Apply the same six P2WSH
+templates, at most 240 scripts.
 
-1. empty string `""`
-2. colon `":"`
-3. pipe `"|"`
-4. hyphen `"-"`
-5. underscore `"_"`
-6. ASCII space `" "`
-7. ASCII newline `"\n"`
-
-SHA256 each of those 14 public strings, then apply the same six P2WSH
-templates. Do not execute Stage C here. Do not add broader combinations,
-extra fields, dates, neighborhoods, or brute force.
+Do not hash. Do not form combinations. Do not add dates. Do not enlarge
+the window. Do not use PBKDF2, BIP39, GPU, or brute force. Do not
+execute Stage D here.
 
 ## Resource and safety notes
 
-- Balanced mode is the default. Stage A and Stage B are sequential.
+- Balanced mode is the default. Stage A, Stage B, and Stage C are sequential.
 - Pause/resume/checkpointing are future bounded-search features and are not
   needed here (`checkpoint-not-needed`).
 - GPU is disabled. No temperature is measured.
-- Offline is the default. Stage B never queries chain history. Remote history
-  checks are explicit, batched, and send derived public addresses only.
+- Offline is the default. Stage B and Stage C never query chain history. Remote history checks are explicit, batched, and send derived public addresses only.
 - Do not paste candidate scalars into a wallet. This tool will not import
   keys, build transactions, or broadcast.
 

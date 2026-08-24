@@ -1,11 +1,12 @@
-# Local resource policy for deterministic Stages A and B.
-# GPU remains disabled. There are no temperature measurements.
+# Local resource policy for deterministic Stages A, B, and C.
+# GPU remains disabled. Stages run sequentially/offline. There are no
+# temperature measurements.
 
 default_mode = "balanced"
 gpu = false
 
 # Reserved, documented defaults for future bounded-search stages. Deterministic
-# Stages A+B do not consume them and do not pretend to read macOS temperatures.
+# Stages A+B+C do not consume them and do not pretend to read macOS temperatures.
 [bounded_search_defaults]
 max_cpu_threads = 4
 gpu_enabled = false
@@ -20,19 +21,19 @@ checkpoint_interval_seconds = 60
 workers = 1
 duty_cycle = 0.20
 max_candidates_per_second = 5
-description = "Low duty cycle. Stage A+B still run sequentially."
+description = "Low duty cycle. Stage A+B+C still run sequentially/offline."
 
 [modes.balanced]
 workers = 1
 duty_cycle = 1.0
 max_candidates_per_second = 0
-description = "Default. Stage A+B are tiny and sequential; no extra concurrency."
+description = "Default. Stage A+B+C are tiny, sequential, and offline; no extra concurrency."
 
 [modes.max]
 workers = 1
 duty_cycle = 1.0
 max_candidates_per_second = 0
-description = "Still sequential for Stage A+B. Pause/resume/checkpointing and GPU are future bounded-search features, not used here."
+description = "Still sequential/offline for Stage A+B+C. Pause/resume/checkpointing and GPU are future bounded-search features, not used here."
 
 [history]
 batch_size = 40

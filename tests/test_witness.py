@@ -6,8 +6,10 @@ import pytest
 
 from genesis_puzzle.witness import (
     WITNESS_TEMPLATES,
+    WitnessTemplate,
     build_p2wsh_candidates,
     compare_p2wsh_target,
+    expected_witness_script,
     minimal_push,
 )
 
@@ -148,6 +150,30 @@ def test_exact_target_comparison_rejects_near_misses():
     mutated_program = "19" + BIP173_P2PK_COMPRESSED_SHA256[2:]
     assert mutated_program != BIP173_P2PK_COMPRESSED_SHA256
     assert not compare_p2wsh_target(p2pk, mutated_program, BIP173_P2PK_COMPRESSED_ADDRESS)
+
+
+def test_expected_witness_script_from_one_pubkey_matches_templates():
+    for template in WITNESS_TEMPLATES:
+        pubkey = COMPRESSED_G if template.pubkey_mode == "compressed" else UNCOMPRESSED_G
+        assert expected_witness_script(template, pubkey) == EXPECTED_SCRIPTS[template.template_id]
+    compressed = expected_witness_script(WITNESS_TEMPLATES[0], COMPRESSED_G)
+    p2pkh_same_key = expected_witness_script(WITNESS_TEMPLATES[4], COMPRESSED_G)
+    assert compressed != p2pkh_same_key
+    with pytest.raises(ValueError, match="compressed pubkey"):
+        expected_witness_script(WITNESS_TEMPLATES[0], UNCOMPRESSED_G)
+    with pytest.raises(ValueError, match="uncompressed pubkey"):
+        expected_witness_script(WITNESS_TEMPLATES[1], COMPRESSED_G)
+    with pytest.raises(ValueError, match="compressed pubkey"):
+        expected_witness_script(WITNESS_TEMPLATES[0], b"\x02" + b"\x00" * 31)
+    fake = WitnessTemplate(
+        template_id="not_a_template",
+        name="not_a_template",
+        priority=99,
+        pubkey_mode="compressed",
+        builder=WITNESS_TEMPLATES[0].builder,
+    )
+    with pytest.raises(ValueError, match="unknown witness template"):
+        expected_witness_script(fake, COMPRESSED_G)
 
 
 def test_wrong_serialization_lengths_and_prefixes_are_rejected():

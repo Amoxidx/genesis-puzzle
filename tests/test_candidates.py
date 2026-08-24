@@ -107,6 +107,16 @@ def test_preview_does_not_include_sha256_digest(genesis_block):
     assert "private_scalar: REDACTED" in text
 
 
+def test_recipes_for_stage_supports_a_b_and_c(genesis_block):
+    from genesis_puzzle.candidates import recipes_for_stage, stage_a_recipes
+    from genesis_puzzle.stage_b import stage_b_recipes
+    from genesis_puzzle.stage_c import stage_c_recipes
+
+    assert recipes_for_stage(genesis_block, "A") == stage_a_recipes(genesis_block)
+    assert recipes_for_stage(genesis_block, "B") == stage_b_recipes(genesis_block)
+    assert recipes_for_stage(genesis_block, "C") == stage_c_recipes(genesis_block)
+
+
 def test_nonce_ascii_sha256_candidate_matches_expected_fingerprint(genesis_block):
     recipe = stage_a_recipes(genesis_block)[3]
     assert recipe.public_input_bytes == b"2083236893"

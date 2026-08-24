@@ -265,7 +265,7 @@ def test_stage_d_real_target_counts_ordering_preservation_and_idempotent_rerun(
     output = io.StringIO()
     derive_calls = _count_engine_derive_pubkeys(monkeypatch)
     result = run_stage_d(store, genesis_block, targets, MODE, out=output)
-    assert derive_calls["n"] == 40
+    assert derive_calls["n"] == 159
     text = output.getvalue()
     run = latest_run(store.conn)
     after = counts(store.conn)
@@ -346,7 +346,7 @@ def test_stage_d_real_target_counts_ordering_preservation_and_idempotent_rerun(
     derive_calls["n"] = 0
     output2 = io.StringIO()
     result2 = run_stage_d(store, genesis_block, targets, MODE, out=output2)
-    assert derive_calls["n"] == 40
+    assert derive_calls["n"] == 159
     assert result2["new_unique_keys"] == 40
     assert result2["witness_candidates_tested"] == 240
     assert result2["cumulative_witness_candidates"] == 954
@@ -493,7 +493,7 @@ def test_first_synthetic_d_candidate_match_stops_after_one(isolated, genesis_blo
     output = io.StringIO()
     derive_calls = _count_engine_derive_pubkeys(monkeypatch)
     result = run_stage_d(store, genesis_block, [target], MODE, out=output)
-    assert derive_calls["n"] == 1
+    assert derive_calls["n"] == 120
     text = output.getvalue()
     d_rows = list_witness_candidates(store.conn, "D")
     run = latest_run(store.conn)
@@ -620,6 +620,90 @@ def test_stage_d_rejects_target_id_mismatch_without_curve_or_mutation(
     other = replace(targets[0], id="synthetic-other-p2wsh")
     with pytest.raises(StageDPrerequisiteError, match="current validated P2WSH target ID"):
         run_stage_d(store, genesis_block, [other], MODE)
+    assert derive_calls["n"] == 0
+    _assert_no_stage_d(store, before)
+
+
+def _swap_stored_pubkey_with_self_consistent_script(store: Store, stage: str) -> None:
+    rows = [
+        row
+        for row in list_witness_candidates(store.conn, stage)
+        if str(row["template_id"]) == "p2pk_compressed"
+    ]
+    donor = rows[0]
+    victim = next(
+        row
+        for row in rows
+        if str(row["fingerprint"]) != str(donor["fingerprint"])
+        and str(row["pubkey_hex"]) != str(donor["pubkey_hex"])
+    )
+    template = next(
+        item for item in WITNESS_TEMPLATES if item.template_id == victim["template_id"]
+    )
+    swapped_pubkey = bytes.fromhex(str(donor["pubkey_hex"]))
+    script = expected_witness_script(template, swapped_pubkey)
+    program, address = p2wsh_program_and_address(script)
+    store.conn.execute(
+        """
+        UPDATE witness_candidates
+        SET pubkey_hex = ?, witness_script_hex = ?, witness_program_hex = ?, address = ?
+        WHERE id = ?
+        """,
+        (swapped_pubkey.hex(), script.hex(), program.hex(), address, victim["id"]),
+    )
+    store.conn.commit()
+    stored = store.conn.execute(
+        "SELECT pubkey_hex, witness_script_hex, witness_program_hex, address "
+        "FROM witness_candidates WHERE id = ?",
+        (victim["id"],),
+    ).fetchone()
+    assert stored["pubkey_hex"] == swapped_pubkey.hex()
+    assert stored["witness_script_hex"] == script.hex()
+    assert stored["witness_program_hex"] == program.hex()
+    assert stored["address"] == address
+    assert expected_witness_script(template, swapped_pubkey) == script
+
+
+def _current_target_equal_to_stored_row(target: KnownTarget, row) -> KnownTarget:
+    program = bytes.fromhex(str(row["witness_program_hex"]))
+    address = str(row["address"])
+    return replace(
+        target,
+        witness_program_hex=program.hex(),
+        address=address,
+        script_pubkey_hex=(bytes([0x00, 0x20]) + program).hex(),
+    )
+
+
+def test_stage_d_rejects_swapped_c_pubkey_with_self_consistent_script(
+    isolated, genesis_block, targets, monkeypatch
+):
+    store = _prepare_abc(isolated, genesis_block, targets)
+    _swap_stored_pubkey_with_self_consistent_script(store, "C")
+    mutated = _state_snapshot(store)
+    derive_calls = _count_engine_derive_pubkeys(monkeypatch)
+    _boom_stage_d_recipes(monkeypatch, "Stage D recipes must not run on a swapped C pubkey")
+    with pytest.raises(StageDPrerequisiteError, match="recomputed scalar"):
+        run_stage_d(store, genesis_block, targets, MODE)
+    assert derive_calls["n"] >= 1
+    _assert_no_stage_d(store, mutated)
+
+
+def test_stage_d_rejects_lying_unmatched_c_row_that_equals_current_target(
+    isolated, genesis_block, targets, monkeypatch
+):
+    store = _prepare_abc(isolated, genesis_block, targets)
+    c_row = list_witness_candidates(store.conn, "C")[0]
+    assert int(c_row["matched"]) == 0
+    lying_target = _current_target_equal_to_stored_row(targets[0], c_row)
+    assert str(lying_target.id) == str(targets[0].id)
+    assert lying_target.witness_program_hex == str(c_row["witness_program_hex"])
+    assert lying_target.address == str(c_row["address"])
+    before = _state_snapshot(store)
+    derive_calls = _count_engine_derive_pubkeys(monkeypatch)
+    _boom_stage_d_recipes(monkeypatch, "Stage D recipes must not run on a lying unmatched C match")
+    with pytest.raises(StageDPrerequisiteError, match="equal the current target"):
+        run_stage_d(store, genesis_block, [lying_target], MODE)
     assert derive_calls["n"] == 0
     _assert_no_stage_d(store, before)
 

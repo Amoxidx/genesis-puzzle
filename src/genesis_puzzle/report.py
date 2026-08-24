@@ -550,7 +550,7 @@ larger combinations, or brute force. Do not execute Stage E here."""
     elif has_current_c and c_match_n:
         remaining_followup = (
             "A stored P2WSH template match is not by itself a solved puzzle. "
-            "Do not execute Stage D."
+            "Do not execute Stage D. Do not execute Stage E."
         )
         next_experiment = ""
     elif complete_no_match_c:
@@ -568,9 +568,11 @@ Use integer offsets -10..-1 and +1..+10, excluding zero: twenty nonce
 offsets and twenty timestamp offsets, 40 keys. Apply the same six P2WSH
 templates, at most 240 scripts.
 
-Do not hash. Do not form combinations. Do not add dates. Do not enlarge
-the window. Do not use PBKDF2, BIP39, GPU, or brute force. Do not
-execute Stage D here."""
+Stage D is implemented, offline, and requires a completed Stage C result in
+the same database. Run `run --stage D`. Do not hash. Do not form
+combinations. Do not add dates. Do not enlarge the window. Do not use
+PBKDF2, BIP39, GPU, or brute force. Do not execute Stage E.
+Stage E and later hypotheses remain out of scope."""
     elif stage_b_run is None:
         remaining_followup = (
             "A miss of Stage A P2PKH/P2WPKH addresses is not a proof that no puzzle "
@@ -618,16 +620,16 @@ extra fields, dates, neighborhoods, or brute force."""
     elif has_current_c:
         title_stage = "A+B+C"
         implemented_scope = (
-            "Deterministic Stages A, B, and C are implemented. Stage D, brute force, "
+            "Deterministic Stages A, B, C, and D are implemented. Stage E, brute force, "
             "PBKDF2/BIP39, Metal, transaction creation, wallet import, spending, and "
             "broadcasting are out of scope."
         )
-        init_proofs = "Stage A, Stage B, or Stage C"
-        sequential_note = "Stage A, Stage B, and Stage C are sequential."
+        init_proofs = "Stage A, Stage B, Stage C, or Stage D"
+        sequential_note = "Stage A, Stage B, Stage C, and Stage D are sequential."
         offline_note = (
-            "Offline is the default. Stage B and Stage C never query chain history. "
-            "Remote history checks are explicit, batched, and send derived public "
-            "addresses only."
+            "Offline is the default. Stage B, Stage C, and Stage D never query chain "
+            "history. Remote history checks are explicit, batched, and send derived "
+            "public addresses only."
         )
     else:
         title_stage = "A+B"

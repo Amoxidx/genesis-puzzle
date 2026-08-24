@@ -509,8 +509,9 @@ def _assert_complete_no_match_d(report: str) -> None:
 def _assert_complete_no_match_c(report: str) -> None:
     assert "Stage A+B+C report" in report
     assert "Stage A+B report" not in report
-    assert "Deterministic Stages A, B, and C are implemented" in report
-    assert "Stage D, brute force" in report
+    assert "Deterministic Stages A, B, C, and D are implemented" in report
+    assert "Stage E, brute force" in report
+    assert "Stage D, brute force" not in report
     assert "Stage C, brute force" not in report
     assert "cumulative unique valid keys after A+B: 105" in report
     assert "tested witness candidates: 630" in report
@@ -540,7 +541,13 @@ def _assert_complete_no_match_c(report: str) -> None:
     assert "BIP39" in stage_d
     assert "GPU" in stage_d
     assert "brute force" in stage_d
-    assert "Do not\nexecute Stage D here" in stage_d or "Do not execute Stage D here" in stage_d
+    assert "run --stage D" in stage_d
+    assert "Do not execute Stage D here" not in report
+    assert "Do not execute Stage D" not in report
+    assert "Do not execute Stage E" in stage_d
+    assert "Do not execute Stage E until" not in report
+    assert "until that" not in stage_d
+    assert "Stage E and later hypotheses remain out of scope" in stage_d
     assert "Stage A+B+C+D report" not in report
     assert "Next highest-value Stage E experiment (not executed)" not in report
     assert "Hypotheses tested in Stage D" not in report
@@ -639,7 +646,10 @@ def test_report_partial_stage_c_match_does_not_recommend_d(facts, targets):
     assert "Next highest-value Stage E experiment (not executed)" not in text
     assert "Stage A+B+C+D report" not in text
     assert "Hypotheses tested in Stage D" not in text
+    assert "run --stage D" not in text
+    assert "Do not execute Stage D here" not in text
     assert "Do not execute Stage D" in text
+    assert "Do not execute Stage E" in text
     assert "cumulative unique valid keys after A+B: 105" in text
     assert "tested witness candidates: 630" in text
     _assert_no_report_duplication(text)

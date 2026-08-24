@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
-from typing import List, Optional, Sequence, TextIO
+from typing import List, Mapping, Optional, Sequence, TextIO
 
 from genesis_puzzle.addresses import DerivedAddresses, derive_standard_addresses
 from genesis_puzzle.bech32 import encode_segwit_address
@@ -395,6 +395,7 @@ def _require_complete_stage_b(
     *,
     error_cls: type[Exception] = StageCPrerequisiteError,
     required_by: str = "Stage C",
+    bind_pubkeys: bool = True,
 ) -> List[tuple[EvaluatedDerivation, Optional[int]]]:
     stored_rows = _stored_derivation_tuples(store, "B")
     if not stored_rows:
@@ -463,19 +464,77 @@ def _require_complete_stage_b(
             "duplicate_count 21, and tested_candidate_count 630"
         )
     _require_canonical_stage_b_witness_grid(
-        store, expected_fps, p2wsh_targets, error_cls=error_cls, required_by=required_by
+        store,
+        unique_ab,
+        p2wsh_targets,
+        error_cls=error_cls,
+        required_by=required_by,
+        bind_pubkeys=bind_pubkeys,
     )
     return pairs
 
 
+def _require_stored_pubkeys_match_recomputed_scalars(
+    rows: Sequence,
+    unique_pairs: Sequence[tuple[str, int, List[EvaluatedDerivation]]],
+    *,
+    error_cls: type[Exception],
+    required_by: str,
+    stage_label: str,
+) -> None:
+    fp_to_scalar = {fingerprint: scalar for fingerprint, scalar, _group in unique_pairs}
+    derived: dict[str, tuple[bytes, bytes]] = {}
+    for row in rows:
+        fingerprint = str(row["fingerprint"])
+        if fingerprint not in derived:
+            derived[fingerprint] = derive_pubkeys(fp_to_scalar[fingerprint])
+        uncompressed, compressed = derived[fingerprint]
+        template = _WITNESS_TEMPLATE_BY_ID[str(row["template_id"])]
+        expected_pubkey = compressed if template.pubkey_mode == "compressed" else uncompressed
+        if bytes.fromhex(str(row["pubkey_hex"])) != expected_pubkey:
+            raise error_cls(
+                f"{required_by} requires each stored {stage_label} public pubkey to equal "
+                "the pubkey derived from the recomputed scalar for that fingerprint"
+            )
+
+
+def _require_matched_flag_equals_current_target(
+    row,
+    program: bytes,
+    p2wsh_targets_by_id: Mapping[str, KnownTarget],
+    *,
+    error_cls: type[Exception],
+    required_by: str,
+    stage_label: str,
+) -> None:
+    target = p2wsh_targets_by_id[str(row["target_id"])]
+    actual_match = (
+        program == bytes.fromhex(target.witness_program_hex)
+        and str(row["address"]) == target.address
+    )
+    stored_matched = bool(int(row["matched"]))
+    if actual_match:
+        raise error_cls(
+            f"{required_by} requires a no-match {stage_label} baseline; "
+            "a stored witness program and native address equal the current target"
+        )
+    if stored_matched != actual_match:
+        raise error_cls(
+            f"{required_by} requires each stored {stage_label} matched flag to equal whether "
+            "the stored witness program and native address equal the current target"
+        )
+
+
 def _require_canonical_stage_b_witness_grid(
     store: Store,
-    expected_fps: set[str],
+    unique_ab: Sequence[tuple[str, int, List[EvaluatedDerivation]]],
     p2wsh_targets: Sequence[KnownTarget],
     *,
     error_cls: type[Exception] = StageCPrerequisiteError,
     required_by: str = "Stage C",
+    bind_pubkeys: bool = True,
 ) -> None:
+    expected_fps = {fingerprint for fingerprint, _scalar, _group in unique_ab}
     matched_any = store.conn.execute(
         "SELECT COUNT(*) FROM witness_candidates WHERE matched = 1"
     ).fetchone()
@@ -495,6 +554,7 @@ def _require_canonical_stage_b_witness_grid(
             f"{required_by} requires the Stage B witness grid to have no duplicate cells"
         )
     current_target_ids = {target.id for target in p2wsh_targets}
+    targets_by_id = {target.id: target for target in p2wsh_targets}
     expected_cells = {
         (fingerprint, target_id, template.template_id)
         for fingerprint in expected_fps
@@ -554,6 +614,22 @@ def _require_canonical_stage_b_witness_grid(
                 f"{required_by} requires each stored Stage B address to equal the native "
                 "mainnet v0 P2WSH encoding of the witness program"
             )
+        _require_matched_flag_equals_current_target(
+            row,
+            program,
+            targets_by_id,
+            error_cls=error_cls,
+            required_by=required_by,
+            stage_label="Stage B",
+        )
+    if bind_pubkeys:
+        _require_stored_pubkeys_match_recomputed_scalars(
+            b_rows,
+            unique_ab,
+            error_cls=error_cls,
+            required_by=required_by,
+            stage_label="Stage B",
+        )
 
 
 def _require_complete_stage_c(
@@ -562,6 +638,8 @@ def _require_complete_stage_c(
     a_pairs: Sequence[tuple[EvaluatedDerivation, Optional[int]]],
     b_pairs: Sequence[tuple[EvaluatedDerivation, Optional[int]]],
     p2wsh_targets: Sequence[KnownTarget],
+    *,
+    bind_pubkeys: bool = True,
 ) -> List[tuple[EvaluatedDerivation, Optional[int]]]:
     stored_rows = _stored_derivation_tuples(store, "C")
     if not stored_rows:
@@ -634,24 +712,29 @@ def _require_complete_stage_c(
         fingerprint
         for fingerprint, _scalar, _group in dedupe_valid_scalars(list(a_pairs) + list(b_pairs))
     }
-    expected_c_fps = {
-        fingerprint
-        for fingerprint, _scalar, _group in dedupe_valid_scalars(pairs)
+    unique_c = [
+        (fingerprint, scalar, group)
+        for fingerprint, scalar, group in dedupe_valid_scalars(pairs)
         if fingerprint not in ab_fingerprints
-    }
-    if len(expected_c_fps) != _EXPECTED_STAGE_C_DERIVATIONS:
+    ]
+    if len(unique_c) != _EXPECTED_STAGE_C_DERIVATIONS:
         raise StageDPrerequisiteError(
             "Stage D requires exactly 14 new Stage C fingerprints recomputed from code"
         )
-    _require_canonical_stage_c_witness_grid(store, expected_c_fps, p2wsh_targets)
+    _require_canonical_stage_c_witness_grid(
+        store, unique_c, p2wsh_targets, bind_pubkeys=bind_pubkeys
+    )
     return pairs
 
 
 def _require_canonical_stage_c_witness_grid(
     store: Store,
-    expected_fps: set[str],
+    unique_c: Sequence[tuple[str, int, List[EvaluatedDerivation]]],
     p2wsh_targets: Sequence[KnownTarget],
+    *,
+    bind_pubkeys: bool = True,
 ) -> None:
+    expected_fps = {fingerprint for fingerprint, _scalar, _group in unique_c}
     matched_any = store.conn.execute(
         "SELECT COUNT(*) FROM witness_candidates WHERE matched = 1"
     ).fetchone()
@@ -672,6 +755,7 @@ def _require_canonical_stage_c_witness_grid(
             "Stage D requires the Stage C witness grid to have no duplicate cells"
         )
     current_target_ids = {target.id for target in p2wsh_targets}
+    targets_by_id = {target.id: target for target in p2wsh_targets}
     expected_cells = {
         (fingerprint, target_id, template.template_id)
         for fingerprint in expected_fps
@@ -731,6 +815,22 @@ def _require_canonical_stage_c_witness_grid(
                 "Stage D requires each stored Stage C address to equal the native "
                 "mainnet v0 P2WSH encoding of the witness program"
             )
+        _require_matched_flag_equals_current_target(
+            row,
+            program,
+            targets_by_id,
+            error_cls=StageDPrerequisiteError,
+            required_by="Stage D",
+            stage_label="Stage C",
+        )
+    if bind_pubkeys:
+        _require_stored_pubkeys_match_recomputed_scalars(
+            c_rows,
+            unique_c,
+            error_cls=StageDPrerequisiteError,
+            required_by="Stage D",
+            stage_label="Stage C",
+        )
 
 
 def run_stage_b(
@@ -1068,8 +1168,37 @@ def run_stage_d(
         p2wsh_targets,
         error_cls=StageDPrerequisiteError,
         required_by="Stage D",
+        bind_pubkeys=False,
     )
-    c_pairs = _require_complete_stage_c(store, block, a_pairs, b_pairs, p2wsh_targets)
+    c_pairs = _require_complete_stage_c(
+        store,
+        block,
+        a_pairs,
+        b_pairs,
+        p2wsh_targets,
+        bind_pubkeys=False,
+    )
+    unique_ab = dedupe_valid_scalars(list(a_pairs) + list(b_pairs))
+    ab_fingerprints = {fingerprint for fingerprint, _scalar, _group in unique_ab}
+    unique_c = [
+        (fingerprint, scalar, group)
+        for fingerprint, scalar, group in dedupe_valid_scalars(c_pairs)
+        if fingerprint not in ab_fingerprints
+    ]
+    _require_stored_pubkeys_match_recomputed_scalars(
+        list_witness_candidates(store.conn, "B"),
+        unique_ab,
+        error_cls=StageDPrerequisiteError,
+        required_by="Stage D",
+        stage_label="Stage B",
+    )
+    _require_stored_pubkeys_match_recomputed_scalars(
+        list_witness_candidates(store.conn, "C"),
+        unique_c,
+        error_cls=StageDPrerequisiteError,
+        required_by="Stage D",
+        stage_label="Stage C",
+    )
 
     recipes: List[Recipe] = stage_d_recipes(block)
     started_mono = time.perf_counter()

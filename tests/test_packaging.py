@@ -264,6 +264,18 @@ def test_quality_gate_stage_d_smoke_contract(repo_root: Path):
     assert "computed Stage D 64-hex scalar leaked" in text
 
 
+def test_report_module_abc_current_state_recommends_implemented_stage_d(repo_root: Path):
+    text = (repo_root / "src" / "genesis_puzzle" / "report.py").read_text(encoding="utf-8")
+    assert "run --stage D" in text
+    assert "Do not execute Stage D here" not in text
+    assert "Deterministic Stages A, B, C, and D are implemented" in text
+    assert "Stage E, brute force" in text
+    assert "Stage D, brute force" not in text
+    assert "Do not execute Stage E" in text
+    assert "Do not execute Stage E until" not in text
+    assert "Stage E and later hypotheses remain out of scope" in text
+
+
 def test_computed_stage_d_scalars_absent_from_release_contract_sources(repo_root: Path):
     nonce, timestamp = _genesis_nonce_timestamp(repo_root)
     computed = _stage_d_computed_scalars(nonce, timestamp)
